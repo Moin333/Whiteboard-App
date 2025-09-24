@@ -1,0 +1,29 @@
+# Build output
+/build
+
+# IDE files (Android Studio)
+# Ignores the entire .idea folder and all .iml files
+/.idea/
+*.iml
+.gradle
+.cxx
+.externalNativeBuild
+
+# Local configuration and properties
+/local.properties
+local.properties
+gradle.properties
+
+# Keystore files
+*.jks
+*.keystore
+
+# Realm-specific database files
+*.realm
+*.realm.lock
+*.realm.management
+*.realm.note
+
+# Android Studio captures and system files
+/captures
+.DS_Store
