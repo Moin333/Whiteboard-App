@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">WhiteboardApp</string>
+    <string name="pen_tool">Pen Tool</string>
+    <string name="eraser_tool">Eraser Tool</string>
 </resources>

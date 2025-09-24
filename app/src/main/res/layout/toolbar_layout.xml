@@ -1,0 +1,51 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="8dp">
+
+    <ImageButton
+        android:id="@+id/btnPen"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@drawable/ic_pen"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/pen_tool" />
+
+    <ImageButton
+        android:id="@+id/btnEraser"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@drawable/ic_eraser"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/eraser_tool" />
+
+    <View
+        android:layout_width="1dp"
+        android:layout_height="match_parent"
+        android:layout_marginHorizontal="8dp"
+        android:background="@color/divider" />
+
+    <HorizontalScrollView
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/colorPalette"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+
+    </HorizontalScrollView>
+
+    <Spinner
+        android:id="@+id/strokeWidthSpinner"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:layout_marginStart="8dp"
+        android:minWidth="100dp" />
+
+</LinearLayout>
