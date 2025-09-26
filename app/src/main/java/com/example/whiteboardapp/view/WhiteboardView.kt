@@ -1,5 +1,3 @@
-// In app/src/main/java/com/example/whiteboardapp/view/WhiteboardView.kt
-
 package com.example.whiteboardapp.view
 
 import android.content.Context
@@ -7,7 +5,7 @@ import android.graphics.*
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
-import androidx.core.graphics.createBitmap // KTX import added
+import androidx.core.graphics.createBitmap
 import com.example.whiteboardapp.model.DrawingPath
 import com.example.whiteboardapp.model.DrawingTool
 import com.example.whiteboardapp.viewmodel.WhiteboardViewModel
@@ -20,8 +18,8 @@ class WhiteboardView @JvmOverloads constructor(
 
     private var viewModel: WhiteboardViewModel? = null
     private var currentTool: DrawingTool = DrawingTool.Pen
-    private var isStylus = false
 
+    // --- Paint Objects ---
     private val drawPaint = Paint().apply {
         isAntiAlias = true
         isDither = true
@@ -32,15 +30,28 @@ class WhiteboardView @JvmOverloads constructor(
         strokeWidth = 5f
     }
 
-    // A temporary paint object for the current stroke, allowing for pressure sensitivity
     private var tempPaint: Paint = Paint(drawPaint)
-
     private val canvasPaint = Paint(Paint.DITHER_FLAG)
+    private val eraserCursorPaint = Paint().apply {
+        isAntiAlias = true
+        color = Color.DKGRAY
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+    }
+
+    // --- Canvas & Path ---
     private lateinit var drawCanvas: Canvas
     private lateinit var canvasBitmap: Bitmap
-
     private var currentPath = Path()
-    private var paths = mutableListOf<DrawingPath>()
+    private var allPaths = mutableListOf<DrawingPath>() // Local copy for consistent rendering
+
+    // --- Eraser State ---
+    private var eraserRadius = 20f
+    private var eraserX = 0f
+    private var eraserY = 0f
+    private var showEraserCursor = false
+    private var isErasing = false
 
     fun setViewModel(vm: WhiteboardViewModel) {
         viewModel = vm
@@ -49,56 +60,51 @@ class WhiteboardView @JvmOverloads constructor(
 
     private fun observeViewModel() {
         viewModel?.apply {
-            // Observe changes in the selected tool
             currentTool.observeForever { tool ->
                 this@WhiteboardView.currentTool = tool
-                updatePaintForTool(tool)
+                // Reset eraser cursor when switching tools
+                if (tool !is DrawingTool.Eraser) {
+                    showEraserCursor = false
+                    isErasing = false
+                } else {
+                    // When switching to eraser, ensure canvas shows current state
+                    refreshCanvas()
+                }
+                invalidate()
             }
-            // Observe changes in stroke width
+
             strokeWidth.observeForever { width ->
                 drawPaint.strokeWidth = width
             }
-            // Observe changes in color
+
             strokeColor.observeForever { color ->
-                if (this@WhiteboardView.currentTool !is DrawingTool.Eraser) {
-                    drawPaint.color = color
-                }
+                drawPaint.color = color
             }
-            // Observe the list of paths to redraw the canvas if needed
-            drawingPaths.observeForever { updatedPaths ->
-                paths = updatedPaths.toMutableList()
-                redrawCanvas()
+
+            eraserRadius.observeForever { radius ->
+                this@WhiteboardView.eraserRadius = radius
+            }
+
+            drawingPaths.observeForever { paths ->
+                // Update local copy and refresh canvas
+                allPaths.clear()
+                allPaths.addAll(paths)
+                refreshCanvas()
             }
         }
     }
 
-    private fun updatePaintForTool(tool: DrawingTool) {
-        when (tool) {
-            is DrawingTool.Pen -> {
-                drawPaint.color = viewModel?.strokeColor?.value ?: Color.BLACK
-                drawPaint.xfermode = null // Normal drawing mode
-            }
-            is DrawingTool.Eraser -> {
-                drawPaint.color = Color.WHITE
-                // PorterDuff.Mode.CLEAR erases the content
-                drawPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-            }
-            else -> {
-                // For other tools
-            }
-        }
-    }
-
-    private fun redrawCanvas() {
+    private fun refreshCanvas() {
         if (::drawCanvas.isInitialized) {
-            // Clear the canvas by filling it with white
-            drawCanvas.drawColor(Color.WHITE, PorterDuff.Mode.CLEAR)
-            drawCanvas.drawColor(Color.WHITE)
-            // Redraw all saved paths
-            for (dp in paths) {
-                drawCanvas.drawPath(dp.path, dp.paint)
+            // Clear the canvas completely
+            drawCanvas.drawColor(Color.WHITE, PorterDuff.Mode.SRC)
+
+            // Redraw all paths
+            for (path in allPaths) {
+                drawCanvas.drawPath(path.path, path.paint)
             }
-            invalidate() // Request a redraw of the view
+
+            invalidate()
         }
     }
 
@@ -106,66 +112,83 @@ class WhiteboardView @JvmOverloads constructor(
         super.onSizeChanged(w, h, oldw, oldh)
         if (::canvasBitmap.isInitialized) canvasBitmap.recycle()
 
-        // **Use KTX extension function for a cleaner call**
         canvasBitmap = createBitmap(w, h, Bitmap.Config.ARGB_8888)
-
         drawCanvas = Canvas(canvasBitmap)
         drawCanvas.drawColor(Color.WHITE)
+
+        // Redraw existing paths if any
+        refreshCanvas()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+
+        // Always draw the bitmap first
         canvas.drawBitmap(canvasBitmap, 0f, 0f, canvasPaint)
-        // Draw the current path being drawn in real-time
-        canvas.drawPath(currentPath, tempPaint)
+
+        // Draw the current path being drawn (only for pen tool)
+        if (currentTool is DrawingTool.Pen && !currentPath.isEmpty) {
+            canvas.drawPath(currentPath, tempPaint)
+        }
+
+        // Draw eraser cursor if active
+        if (showEraserCursor && currentTool is DrawingTool.Eraser) {
+            canvas.drawCircle(eraserX, eraserY, eraserRadius, eraserCursorPaint)
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        isStylus = event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS
-
-        val pressure = if (isStylus) event.pressure.coerceIn(0.1f, 1.0f) else 1.0f
-
-        // Let the specific handler for the current tool manage the event
         return when (currentTool) {
-            is DrawingTool.Pen, is DrawingTool.Eraser -> handleDrawing(event, pressure)
+            is DrawingTool.Pen -> handleDrawing(event)
+            is DrawingTool.Eraser -> handleErasing(event)
             else -> super.onTouchEvent(event)
         }
     }
 
-    private fun handleDrawing(event: MotionEvent, pressure: Float): Boolean {
+    private fun handleDrawing(event: MotionEvent): Boolean {
         val x = event.x
         val y = event.y
+        val pressure = if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) {
+            event.pressure.coerceIn(0.1f, 1.0f)
+        } else {
+            1.0f
+        }
 
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
-                // Start a new path
                 currentPath.reset()
                 currentPath.moveTo(x, y)
-                // Create a temporary paint object for this specific path
-                val adjustedWidth = drawPaint.strokeWidth * pressure
-                tempPaint = Paint(drawPaint).apply { strokeWidth = adjustedWidth }
+                // Create temp paint for this stroke with pressure sensitivity
+                tempPaint = Paint(drawPaint).apply {
+                    strokeWidth = this@WhiteboardView.drawPaint.strokeWidth * pressure
+                    // Ensure normal blending mode for drawing
+                    xfermode = null
+                }
                 return true
             }
+
             MotionEvent.ACTION_MOVE -> {
-                // Continue the path
                 currentPath.lineTo(x, y)
-                invalidate() // Redraw the view to show the path as it's being drawn
+                invalidate()
                 return true
             }
+
             MotionEvent.ACTION_UP -> {
-                // Finalize the path
+                // Draw the path to canvas
                 drawCanvas.drawPath(currentPath, tempPaint)
-                val drawingPath = DrawingPath(
+
+                // Create drawing path object and add to ViewModel
+                val newPath = DrawingPath(
                     path = Path(currentPath),
                     paint = Paint(tempPaint),
                     strokeWidth = tempPaint.strokeWidth,
                     color = tempPaint.color
                 )
-                // Add the completed path to the ViewModel
-                viewModel?.addPath(drawingPath)
+                viewModel?.addPath(newPath)
+
+                // Reset current path
                 currentPath.reset()
                 invalidate()
-                // **Call performClick for accessibility**
                 performClick()
                 return true
             }
@@ -173,8 +196,50 @@ class WhiteboardView @JvmOverloads constructor(
         return false
     }
 
+    private fun handleErasing(event: MotionEvent): Boolean {
+        eraserX = event.x
+        eraserY = event.y
+
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                showEraserCursor = true
+                isErasing = true
+                // Perform erase operation
+                viewModel?.eraseAt(eraserX, eraserY, eraserRadius)
+                invalidate()
+                return true
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                // Continue erasing as user moves finger/stylus
+                viewModel?.eraseAt(eraserX, eraserY, eraserRadius)
+                invalidate()
+                return true
+            }
+
+            MotionEvent.ACTION_UP -> {
+                showEraserCursor = false
+                isErasing = false
+                performClick()
+                invalidate()
+                return true
+            }
+        }
+        return true
+    }
+
     override fun performClick(): Boolean {
         super.performClick()
         return true
+    }
+
+    // Method to clear the entire canvas
+    fun clearCanvas() {
+        if (::drawCanvas.isInitialized) {
+            drawCanvas.drawColor(Color.WHITE, PorterDuff.Mode.SRC)
+            allPaths.clear()
+            currentPath.reset()
+            invalidate()
+        }
     }
 }
