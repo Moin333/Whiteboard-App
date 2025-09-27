@@ -8,6 +8,7 @@ import android.widget.ArrayAdapter
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.Spinner
+import android.widget.ToggleButton
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
@@ -16,6 +17,7 @@ import com.example.whiteboardapp.view.EraserSizeSelector
 import com.example.whiteboardapp.view.WhiteboardView
 import com.example.whiteboardapp.viewmodel.WhiteboardViewModel
 import androidx.core.graphics.toColorInt
+import com.example.whiteboardapp.model.ShapeType
 
 class MainActivity : AppCompatActivity() {
 
@@ -27,6 +29,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var undoButton: ImageButton
     private lateinit var penButton: ImageButton
     private lateinit var eraserButton: ImageButton
+    private lateinit var selectButton: ImageButton
+    private lateinit var lineButton: ImageButton
+    private lateinit var rectButton: ImageButton
+    private lateinit var circleButton: ImageButton
+    private lateinit var fillToggle: ToggleButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,6 +51,11 @@ class MainActivity : AppCompatActivity() {
         penButton = findViewById(R.id.btnPen)
         eraserButton = findViewById(R.id.btnEraser)
         undoButton = findViewById(R.id.btnUndo)
+        selectButton = findViewById(R.id.btnSelect)
+        lineButton = findViewById(R.id.btnLine)
+        rectButton = findViewById(R.id.btnRectangle)
+        circleButton = findViewById(R.id.btnCircle)
+        fillToggle = findViewById(R.id.btnFillToggle)
 
         penButton.setOnClickListener {
             selectTool(DrawingTool.Pen)
@@ -55,6 +67,27 @@ class MainActivity : AppCompatActivity() {
 
         undoButton.setOnClickListener {
             viewModel.undo()
+        }
+
+        selectButton.setOnClickListener {
+            selectTool(DrawingTool.Select)
+        }
+
+        lineButton.setOnClickListener {
+            selectTool(DrawingTool.Shape(ShapeType.LINE))
+        }
+
+        rectButton.setOnClickListener {
+            selectTool(DrawingTool.Shape(ShapeType.RECTANGLE))
+        }
+
+        circleButton.setOnClickListener {
+            selectTool(DrawingTool.Shape(ShapeType.CIRCLE))
+        }
+
+        // Fill toggle button setup
+        fillToggle.setOnCheckedChangeListener { _, isChecked ->
+            viewModel.toggleFill(isChecked)
         }
 
         // Color Palette
@@ -76,13 +109,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectTool(tool: DrawingTool) {
         viewModel.selectTool(tool)
-        updateToolSelection(tool)
     }
 
     private fun updateToolSelection(tool: DrawingTool) {
         // Reset all button backgrounds
         penButton.isSelected = false
         eraserButton.isSelected = false
+        selectButton.isSelected = false
+        lineButton.isSelected = false
+        rectButton.isSelected = false
+        circleButton.isSelected = false
 
         // Highlight selected tool
         when (tool) {
@@ -92,19 +128,30 @@ class MainActivity : AppCompatActivity() {
             is DrawingTool.Eraser -> {
                 eraserButton.isSelected = true
             }
+            is DrawingTool.Select -> selectButton.isSelected = true
+            is DrawingTool.Shape -> {
+                when (tool.type) {
+                    ShapeType.LINE -> lineButton.isSelected = true
+                    ShapeType.RECTANGLE -> rectButton.isSelected = true
+                    ShapeType.CIRCLE -> circleButton.isSelected = true
+                    else -> {}
+                }
+            }
             else -> { /* For future tools */ }
         }
     }
 
     private fun observeViewModel() {
         viewModel.currentTool.observe(this) { tool ->
-            val isPen = tool is DrawingTool.Pen
+            val isPenOrShape = tool is DrawingTool.Pen || tool is DrawingTool.Shape
             val isEraser = tool is DrawingTool.Eraser
+            val isShapeTool = tool is DrawingTool.Shape
 
             // Show/hide appropriate UI elements
-            colorPaletteContainer.isVisible = isPen
-            strokeWidthSpinner.isVisible = isPen
+            colorPaletteContainer.isVisible = isPenOrShape
+            strokeWidthSpinner.isVisible = isPenOrShape
             eraserSizeSelector.isVisible = isEraser
+            fillToggle.isVisible = isShapeTool
 
             // Update tool selection visually
             updateToolSelection(tool)
@@ -113,6 +160,11 @@ class MainActivity : AppCompatActivity() {
         viewModel.canUndo.observe(this) { canUndo ->
             undoButton.isEnabled = canUndo
             undoButton.alpha = if (canUndo) 1.0f else 0.5f
+        }
+
+        // Observe fill state to sync the toggle button
+        viewModel.isFillEnabled.observe(this) { isEnabled ->
+            fillToggle.isChecked = isEnabled
         }
     }
 

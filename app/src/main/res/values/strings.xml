@@ -3,4 +3,9 @@
     <string name="pen_tool">Pen Tool</string>
     <string name="eraser_tool">Eraser Tool</string>
     <string name="undo">Undo</string>
+    <string name="select_tool">Select Tool</string>
+    <string name="line_tool">Line Tool</string>
+    <string name="rectangle_tool">Rectangle Tool</string>
+    <string name="circle_tool">Circle Tool</string>
+    <string name="fill_btn">Fill</string>
 </resources>
