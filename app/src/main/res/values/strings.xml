@@ -8,4 +8,14 @@
     <string name="rectangle_tool">Rectangle Tool</string>
     <string name="circle_tool">Circle Tool</string>
     <string name="fill_btn">Fill</string>
+    <string name="text_hint">Enter text…</string>
+    <string name="radio_align_left">Left</string>
+    <string name="radio_align_center">Center</string>
+    <string name="radio_align_right">Right</string>
+    <string name="text_view_size">Size: 48sp</string>
+    <string name="toggle_italic_textoff">I</string>
+    <string name="toggle_italic_texton">I</string>
+    <string name="toggle_bold_textoff">B</string>
+    <string name="toggle_bold_texton">B</string>
+    <string name="text_tool">Text Tool</string>
 </resources>

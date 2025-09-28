@@ -96,6 +96,11 @@ class WhiteboardViewModel : ViewModel() {
         }
     }
 
+    fun updateObject(obj: DrawingObject) {
+        objectManager.updateObject(obj)
+        updateObjectsLiveData()
+    }
+
     // --- Private Helper ---
     private fun updateObjectsLiveData() {
         val currentObjects = objectManager.getObjects()

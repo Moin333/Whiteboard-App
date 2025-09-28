@@ -1,123 +1,138 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<?xml version="1.0" encoding="utf-8"?>
+<HorizontalScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:gravity="center_vertical"
-    android:orientation="horizontal"
-    android:padding="8dp">
+    android:scrollbars="none">
 
-    <ImageButton
-        android:id="@+id/btnUndo"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/undo"
-        android:src="@drawable/ic_undo"
-        app:tint="#424242" />
-    <ImageButton
-        android:id="@+id/btnPen"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:background="@drawable/tool_button_background"
-        android:contentDescription="@string/pen_tool"
-        android:src="@drawable/ic_pen"
-        app:tint="#424242" />
-
-    <ImageButton
-        android:id="@+id/btnEraser"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:background="@drawable/tool_button_background"
-        android:contentDescription="@string/eraser_tool"
-        android:src="@drawable/ic_eraser"
-        app:tint="#424242" />
-
-    <ImageButton
-        android:id="@+id/btnSelect"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:src="@drawable/ic_select"
-        android:contentDescription="@string/select_tool"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        app:tint="#424242" />
-    <ImageButton
-        android:id="@+id/btnLine"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:src="@drawable/ic_line"
-        android:contentDescription="@string/line_tool"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        app:tint="#424242" />
-    <ImageButton
-        android:id="@+id/btnRectangle"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:src="@drawable/ic_rectangle"
-        android:contentDescription="@string/rectangle_tool"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        app:tint="#424242" />
-    <ImageButton
-        android:id="@+id/btnCircle"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:src="@drawable/ic_circle"
-        android:contentDescription="@string/circle_tool"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        app:tint="#424242" />
-
-
-    <View
-        android:layout_width="1dp"
-        android:layout_height="match_parent"
-        android:layout_marginHorizontal="8dp"
-        android:background="?android:attr/listDivider" />
-
-    <FrameLayout
-        android:layout_width="0dp"
+    <LinearLayout
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_weight="1">
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="8dp">
 
-        <HorizontalScrollView
-            android:id="@+id/colorPaletteContainer"
-            android:layout_width="match_parent"
+        <ImageButton
+            android:id="@+id/btnUndo"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/undo"
+            android:src="@drawable/ic_undo"
+            app:tint="#424242" />
+        <ImageButton
+            android:id="@+id/btnPen"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/tool_button_background"
+            android:contentDescription="@string/pen_tool"
+            android:src="@drawable/ic_pen"
+            app:tint="#424242" />
+
+        <ImageButton
+            android:id="@+id/btnEraser"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/tool_button_background"
+            android:contentDescription="@string/eraser_tool"
+            android:src="@drawable/ic_eraser"
+            app:tint="#424242" />
+
+        <ImageButton
+            android:id="@+id/btnSelect"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_select"
+            android:contentDescription="@string/select_tool"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#424242" />
+        <ImageButton
+            android:id="@+id/btnLine"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_line"
+            android:contentDescription="@string/line_tool"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#424242" />
+        <ImageButton
+            android:id="@+id/btnRectangle"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_rectangle"
+            android:contentDescription="@string/rectangle_tool"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#424242" />
+        <ImageButton
+            android:id="@+id/btnCircle"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_circle"
+            android:contentDescription="@string/circle_tool"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#424242" />
+
+        <ImageButton
+            android:id="@+id/btnText"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_text"
+            android:contentDescription="@string/text_tool"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#424242" />
+
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:layout_marginHorizontal="8dp"
+            android:background="?android:attr/listDivider" />
+
+        <FrameLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:scrollbars="none">
+            android:layout_weight="1">
 
-            <LinearLayout
-                android:id="@+id/colorPalette"
+            <FrameLayout
+                android:id="@+id/colorPaletteContainer"
                 android:layout_width="wrap_content"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:id="@+id/colorPalette"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </FrameLayout>
+
+            <com.example.whiteboardapp.view.EraserSizeSelector
+                android:id="@+id/eraserSizeSelector"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
+                android:visibility="gone" />
 
-        <com.example.whiteboardapp.view.EraserSizeSelector
-            android:id="@+id/eraserSizeSelector"
-            android:layout_width="match_parent"
+        </FrameLayout>
+
+        <ToggleButton
+            android:id="@+id/btnFillToggle"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:text="@string/fill_btn"
+            android:textOff="@string/fill_btn"
+            android:textOn="@string/fill_btn"
+            android:visibility="gone"
+            android:drawableTop="@drawable/ic_fill"
+            android:background="?attr/selectableItemBackground" />
+
+        <Spinner
+            android:id="@+id/strokeWidthSpinner"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:visibility="gone" />
+            android:layout_marginStart="8dp"
+            android:minHeight="48dp"
+            android:paddingHorizontal="8dp"
+            android:background="@android:drawable/btn_dropdown"
+            android:backgroundTint="#E0E0E0" />
 
-    </FrameLayout>
-
-    <ToggleButton
-        android:id="@+id/btnFillToggle"
-        android:layout_width="wrap_content"
-        android:layout_height="48dp"
-        android:layout_marginStart="8dp"
-        android:text="@string/fill_btn"
-        android:textOff="@string/fill_btn"
-        android:textOn="@string/fill_btn"
-        android:visibility="gone"
-        android:drawableTop="@drawable/ic_fill"
-        android:background="?attr/selectableItemBackground" />
-
-    <Spinner
-        android:id="@+id/strokeWidthSpinner"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:minHeight="48dp"
-        android:paddingHorizontal="8dp"
-        android:background="@android:drawable/btn_dropdown"
-        android:backgroundTint="#E0E0E0" />
-
-</LinearLayout>
+    </LinearLayout>
+</HorizontalScrollView>

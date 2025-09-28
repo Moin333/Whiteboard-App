@@ -9,6 +9,7 @@ import androidx.core.graphics.createBitmap
 import com.example.whiteboardapp.manager.ShapeDrawingHandler
 import com.example.whiteboardapp.model.DrawingObject
 import com.example.whiteboardapp.model.DrawingTool
+import com.example.whiteboardapp.model.TextObject
 import com.example.whiteboardapp.viewmodel.WhiteboardViewModel
 
 class WhiteboardView @JvmOverloads constructor(
@@ -101,6 +102,7 @@ class WhiteboardView @JvmOverloads constructor(
             is DrawingTool.Shape -> handleShapeDrawing(event)
             is DrawingTool.Select -> handleSelection(event)
             is DrawingTool.Eraser -> handleErasing(event)
+            is DrawingTool.Text -> handleTextTool(event)
             else -> return super.onTouchEvent(event)
         }
         return true
@@ -171,6 +173,31 @@ class WhiteboardView @JvmOverloads constructor(
     private fun handleErasing(event: MotionEvent) {
         if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
             viewModel?.eraseObjectsAt(event.x, event.y)
+        }
+    }
+
+    private fun handleTextTool(event: MotionEvent) {
+        if (event.action == MotionEvent.ACTION_DOWN) {
+            val x = event.x
+            val y = event.y
+
+            // Check if the user tapped on an existing object
+            val clickedObject = viewModel?.objectManager?.selectObjectAt(x, y)
+
+            if (clickedObject is TextObject) {
+                // Edit existing text object
+                TextEditDialog(context, clickedObject) { updatedObject ->
+                    viewModel?.updateObject(updatedObject)
+                }.show()
+            } else {
+                // Create a new text object
+                TextEditDialog(context, null) { newObject ->
+                    // Set the initial position to where the user tapped
+                    newObject.x = x
+                    newObject.y = y
+                    viewModel?.addObject(newObject)
+                }.show()
+            }
         }
     }
 

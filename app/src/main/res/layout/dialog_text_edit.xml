@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <EditText
+            android:id="@+id/editText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autofillHints="no"
+            android:gravity="top"
+            android:hint="@string/text_hint"
+            android:inputType="textMultiLine"
+            android:minHeight="100dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ToggleButton
+                android:id="@+id/toggleBold"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:minWidth="0dp"
+                android:textOff="@string/toggle_bold_textoff"
+                android:textOn="@string/toggle_bold_texton"
+                android:textStyle="bold" />
+
+            <ToggleButton
+                android:id="@+id/toggleItalic"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:minWidth="0dp"
+                android:textOff="@string/toggle_italic_textoff"
+                android:textOn="@string/toggle_italic_texton"
+                android:textStyle="italic" />
+
+            <Spinner
+                android:id="@+id/spinnerTextColor"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_weight="1"
+                android:minHeight="48dp"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/textSizeLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/text_view_size" />
+
+        <SeekBar
+            android:id="@+id/seekBarTextSize"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" />
+
+        <RadioGroup
+            android:id="@+id/radioGroupAlignment"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/radioAlignLeft"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="@string/radio_align_left" />
+
+            <RadioButton
+                android:id="@+id/radioAlignCenter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:text="@string/radio_align_center" />
+
+            <RadioButton
+                android:id="@+id/radioAlignRight"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:text="@string/radio_align_right" />
+        </RadioGroup>
+    </LinearLayout>
+</ScrollView>

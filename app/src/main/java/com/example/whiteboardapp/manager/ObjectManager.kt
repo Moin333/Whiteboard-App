@@ -94,6 +94,13 @@ class ObjectManager {
         return erasedObjects
     }
 
+    fun updateObject(updatedObject: DrawingObject) {
+        val index = objects.indexOfFirst { it.id == updatedObject.id }
+        if (index != -1) {
+            objects[index] = updatedObject
+        }
+    }
+
     fun getObjectCount(): Int = objects.size
 
     fun hasObjects(): Boolean = objects.isNotEmpty()

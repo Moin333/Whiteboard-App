@@ -33,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var lineButton: ImageButton
     private lateinit var rectButton: ImageButton
     private lateinit var circleButton: ImageButton
+    private lateinit var textButton: ImageButton
     private lateinit var fillToggle: ToggleButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,6 +56,7 @@ class MainActivity : AppCompatActivity() {
         lineButton = findViewById(R.id.btnLine)
         rectButton = findViewById(R.id.btnRectangle)
         circleButton = findViewById(R.id.btnCircle)
+        textButton = findViewById(R.id.btnText)
         fillToggle = findViewById(R.id.btnFillToggle)
 
         penButton.setOnClickListener {
@@ -83,6 +85,10 @@ class MainActivity : AppCompatActivity() {
 
         circleButton.setOnClickListener {
             selectTool(DrawingTool.Shape(ShapeType.CIRCLE))
+        }
+
+        textButton.setOnClickListener {
+            selectTool(DrawingTool.Text)
         }
 
         // Fill toggle button setup
@@ -119,6 +125,7 @@ class MainActivity : AppCompatActivity() {
         lineButton.isSelected = false
         rectButton.isSelected = false
         circleButton.isSelected = false
+        textButton.isSelected = false
 
         // Highlight selected tool
         when (tool) {
@@ -137,6 +144,7 @@ class MainActivity : AppCompatActivity() {
                     else -> {}
                 }
             }
+            is DrawingTool.Text -> textButton.isSelected = true
             else -> { /* For future tools */ }
         }
     }
@@ -146,6 +154,7 @@ class MainActivity : AppCompatActivity() {
             val isPenOrShape = tool is DrawingTool.Pen || tool is DrawingTool.Shape
             val isEraser = tool is DrawingTool.Eraser
             val isShapeTool = tool is DrawingTool.Shape
+            val isTextTool = tool is DrawingTool.Text
 
             // Show/hide appropriate UI elements
             colorPaletteContainer.isVisible = isPenOrShape

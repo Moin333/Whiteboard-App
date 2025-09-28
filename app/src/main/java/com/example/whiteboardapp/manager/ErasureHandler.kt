@@ -3,6 +3,7 @@ package com.example.whiteboardapp.manager
 import android.graphics.PathMeasure
 import android.graphics.RectF
 import com.example.whiteboardapp.model.DrawingObject
+import com.example.whiteboardapp.model.TextObject
 import kotlin.math.hypot
 
 class ErasureHandler {
@@ -33,6 +34,10 @@ class ErasureHandler {
             is DrawingObject.ShapeObject -> {
                 // For shapes, the bounds check is sufficient
                 // since shapes are solid geometric primitives
+                true
+            }
+            is TextObject -> {
+                // For text, the initial bounds check is also sufficient
                 true
             }
         }
