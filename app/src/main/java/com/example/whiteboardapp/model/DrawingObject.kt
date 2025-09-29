@@ -3,7 +3,9 @@ package com.example.whiteboardapp.model
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PointF
 import android.graphics.RectF
+import androidx.core.graphics.withRotation
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.cos
@@ -13,11 +15,23 @@ import kotlin.math.sin
 sealed class DrawingObject {
     abstract val id: String
     abstract val bounds: RectF
+    open var rotation: Float = 0f
 
     abstract fun draw(canvas: Canvas)
     abstract fun contains(x: Float, y: Float): Boolean
     abstract fun move(dx: Float, dy: Float)
 
+    protected fun rotatePoint(x: Float, y: Float, cx: Float, cy: Float, angle: Float): PointF {
+        val rad = Math.toRadians(angle.toDouble())
+        val cos = cos(rad).toFloat()
+        val sin = sin(rad).toFloat()
+        val dx = x - cx
+        val dy = y - cy
+        return PointF(
+            cx + dx * cos - dy * sin,
+            cy + dx * sin + dy * cos
+        )
+    }
     data class PathObject(
         override val id: String = UUID.randomUUID().toString(),
         val path: Path,
@@ -64,25 +78,28 @@ sealed class DrawingObject {
             )
 
         override fun draw(canvas: Canvas) {
-            when (shapeType) {
-                ShapeType.LINE -> {
-                    canvas.drawLine(startX, startY, endX, endY, paint)
-                }
-                ShapeType.RECTANGLE -> {
-                    // Draw fill first (if enabled), then stroke
-                    fillPaint?.let { canvas.drawRect(bounds, it) }
-                    canvas.drawRect(bounds, paint)
-                }
-                ShapeType.CIRCLE -> {
-                    val centerX = (startX + endX) / 2f
-                    val centerY = (startY + endY) / 2f
-                    val radius = hypot(endX - startX, endY - startY) / 2f
-                    // Draw fill first (if enabled), then stroke
-                    fillPaint?.let { canvas.drawCircle(centerX, centerY, radius, it) }
-                    canvas.drawCircle(centerX, centerY, radius, paint)
-                }
-                ShapeType.POLYGON -> {
-                    drawPolygon(canvas)
+            val centerX = bounds.centerX()
+            val centerY = bounds.centerY()
+
+            canvas.withRotation(rotation, centerX, centerY) {
+                when (shapeType) {
+                    ShapeType.LINE -> {
+                        drawLine(startX, startY, endX, endY, paint)
+                    }
+                    ShapeType.RECTANGLE -> {
+                        fillPaint?.let { drawRect(bounds, it) }
+                        drawRect(bounds, paint)
+                    }
+                    ShapeType.CIRCLE -> {
+                        val cX = (startX + endX) / 2f
+                        val cY = (startY + endY) / 2f
+                        val radius = hypot(endX - startX, endY - startY) / 2f
+                        fillPaint?.let { drawCircle(cX, cY, radius, it) }
+                        drawCircle(cX, cY, radius, paint)
+                    }
+                    ShapeType.POLYGON -> {
+                        drawPolygon(this)
+                    }
                 }
             }
         }
@@ -107,7 +124,16 @@ sealed class DrawingObject {
             canvas.drawPath(path, paint)
         }
 
-        override fun contains(x: Float, y: Float): Boolean = bounds.contains(x, y)
+        override fun contains(x: Float, y: Float): Boolean {
+            val centerX = bounds.centerX()
+            val centerY = bounds.centerY()
+
+            if (rotation != 0f) {
+                val rotatedPoint = rotatePoint(x, y, centerX, centerY, -rotation)
+                return bounds.contains(rotatedPoint.x, rotatedPoint.y)
+            }
+            return bounds.contains(x, y)
+        }
 
         override fun move(dx: Float, dy: Float) {
             startX += dx

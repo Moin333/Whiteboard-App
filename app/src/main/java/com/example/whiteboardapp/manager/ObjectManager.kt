@@ -5,11 +5,15 @@ import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import com.example.whiteboardapp.model.DrawingObject
+import com.example.whiteboardapp.model.HandleType
+import com.example.whiteboardapp.model.TransformHandleManager
 
 class ObjectManager {
     private val objects = mutableListOf<DrawingObject>()
     private var selectedObject: DrawingObject? = null
     private val erasureHandler = ErasureHandler()
+    private val transformHandleManager = TransformHandleManager()
+    private val transformationManager = TransformationManager()
 
     fun addObject(obj: DrawingObject) {
         objects.add(obj)
@@ -28,17 +32,55 @@ class ObjectManager {
     }
 
     fun selectObjectAt(x: Float, y: Float): DrawingObject? {
-        // Iterate in reverse to select the topmost object
+        // First, check if a handle of an already selected object is tapped
+        if (selectedObject != null) {
+            val handle = transformHandleManager.getHandleAt(x, y)
+            if (handle != null) {
+                transformationManager.startTransform(selectedObject!!, handle.type, x, y)
+                return selectedObject
+            }
+        }
+
+        // If no handle is tapped, try to select a new object
         selectedObject = objects.asReversed().find { it.contains(x, y) }
+        transformationManager.endTransform() // End any previous transform
+
+        // Update handles for the newly selected object
+        selectedObject?.let {
+            transformHandleManager.updateHandles(it.bounds, it.rotation)
+        }
+
         return selectedObject
     }
 
     fun clearSelection() {
         selectedObject = null
+        transformationManager.endTransform()
     }
 
     fun moveSelected(dx: Float, dy: Float) {
         selectedObject?.move(dx, dy)
+        selectedObject?.let {
+            transformHandleManager.updateHandles(it.bounds, it.rotation)
+        }
+    }
+
+    fun updateTransform(x: Float, y: Float): Boolean {
+        val obj = selectedObject ?: return false
+        val transformed = transformationManager.updateTransform(obj, x, y)
+        if (transformed) {
+            // Update handles after transformation
+            transformHandleManager.updateHandles(obj.bounds, obj.rotation)
+        }
+        return transformed
+    }
+
+    fun endTransform() {
+        transformationManager.endTransform()
+    }
+
+    fun isTransforming(): Boolean {
+        return selectedObject != null && transformationManager.isTransforming()
     }
 
     fun drawAll(canvas: Canvas) {
@@ -47,14 +89,60 @@ class ObjectManager {
 
     fun drawSelection(canvas: Canvas) {
         selectedObject?.let { obj ->
-            val paint = Paint().apply {
+            // Draw selection bounds
+            val selectionPaint = Paint().apply {
                 color = Color.BLUE
                 style = Paint.Style.STROKE
                 strokeWidth = 3f
                 pathEffect = DashPathEffect(floatArrayOf(15f, 10f), 0f)
             }
-            val bounds = obj.bounds
-            canvas.drawRect(bounds, paint)
+            canvas.drawRect(obj.bounds, selectionPaint)
+
+            // Draw transform handles
+            drawTransformHandles(canvas)
+        }
+    }
+
+    private fun drawTransformHandles(canvas: Canvas) {
+        val handles = transformHandleManager.getAllHandles()
+
+        val handlePaint = Paint().apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        val handleStrokePaint = Paint().apply {
+            color = Color.BLUE
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            isAntiAlias = true
+        }
+        val rotateHandlePaint = Paint().apply {
+            color = Color.GREEN
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        val rotateStrokePaint = Paint().apply {
+            color = Color.DKGRAY
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            isAntiAlias = true
+        }
+
+        for (handle in handles) {
+            if (handle.type == HandleType.ROTATE) {
+                // Draw rotation handle differently
+                canvas.drawCircle(handle.position.x, handle.position.y, handle.radius, rotateHandlePaint)
+                canvas.drawCircle(handle.position.x, handle.position.y, handle.radius, rotateStrokePaint)
+                // Draw line connecting to top edge
+                selectedObject?.let { obj ->
+                    canvas.drawLine(obj.bounds.centerX(), obj.bounds.top, handle.position.x, handle.position.y, rotateStrokePaint)
+                }
+            } else {
+                // Draw resize handles
+                canvas.drawCircle(handle.position.x, handle.position.y, handle.radius, handlePaint)
+                canvas.drawCircle(handle.position.x, handle.position.y, handle.radius, handleStrokePaint)
+            }
         }
     }
 
@@ -98,6 +186,9 @@ class ObjectManager {
         val index = objects.indexOfFirst { it.id == updatedObject.id }
         if (index != -1) {
             objects[index] = updatedObject
+            if (updatedObject == selectedObject) {
+                transformHandleManager.updateHandles(updatedObject.bounds, updatedObject.rotation)
+            }
         }
     }
 

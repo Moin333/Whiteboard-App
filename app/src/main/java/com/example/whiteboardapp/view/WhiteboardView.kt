@@ -26,6 +26,7 @@ class WhiteboardView @JvmOverloads constructor(
     private var allObjects = listOf<DrawingObject>()
     private var lastTouchX = 0f
     private var lastTouchY = 0f
+    private var isTransforming = false
 
     // --- Paint Objects ---
     private val drawPaint = Paint().apply {
@@ -150,22 +151,39 @@ class WhiteboardView @JvmOverloads constructor(
     }
 
     private fun handleSelection(event: MotionEvent) {
+        val objectManager = viewModel?.objectManager ?: return
+        val x = event.x
+        val y = event.y
+
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
-                viewModel?.selectObjectAt(event.x, event.y)
-                lastTouchX = event.x
-                lastTouchY = event.y
+                // selectObjectAt will handle both object and handle selection
+                objectManager.selectObjectAt(x, y)
+                isTransforming = objectManager.isTransforming()
+                lastTouchX = x
+                lastTouchY = y
                 refreshCanvas()
             }
             MotionEvent.ACTION_MOVE -> {
-                val dx = event.x - lastTouchX
-                val dy = event.y - lastTouchY
-                viewModel?.moveSelectedObject(dx, dy)
-                lastTouchX = event.x
-                lastTouchY = event.y
+                if (isTransforming) {
+                    // Update resize/rotate transformation
+                    objectManager.updateTransform(x, y)
+                } else if (objectManager.getSelectedObject() != null) {
+                    // Move the entire object
+                    val dx = x - lastTouchX
+                    val dy = y - lastTouchY
+                    objectManager.moveSelected(dx, dy)
+                }
+                lastTouchX = x
+                lastTouchY = y
+                refreshCanvas()
             }
             MotionEvent.ACTION_UP -> {
-                // Deselect or finalize move
+                if (isTransforming) {
+                    objectManager.endTransform()
+                    isTransforming = false
+                }
+                performClick()
             }
         }
     }

@@ -4,6 +4,7 @@ import android.graphics.*
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import androidx.core.graphics.withRotation
 import java.util.*
 import androidx.core.graphics.withSave
 
@@ -100,22 +101,33 @@ data class TextObject(
         if (isLayoutDirty) {
             buildStaticLayout()
         }
-        canvas.withSave {
+        val currentBounds = this.bounds
+        val centerX = currentBounds.centerX()
+        val centerY = currentBounds.centerY()
 
-            // Calculate the top-left corner for drawing, based on the alignment
-            val drawX = when (alignment) {
-                Paint.Align.LEFT -> x
-                Paint.Align.CENTER -> x - staticLayout.width / 2f
-                Paint.Align.RIGHT -> x - staticLayout.width
+        canvas.withRotation(rotation, centerX, centerY) {
+            withSave {
+                val drawX = when (alignment) {
+                    Paint.Align.LEFT -> currentBounds.left
+                    Paint.Align.CENTER -> currentBounds.left
+                    Paint.Align.RIGHT -> currentBounds.left
+                }
+                translate(drawX, currentBounds.top)
+                staticLayout.draw(this)
             }
-
-            // Translate to the calculated top-left corner and draw
-            translate(drawX, y)
-            staticLayout.draw(this)
         }
     }
 
-    override fun contains(x: Float, y: Float): Boolean = bounds.contains(x, y)
+    override fun contains(x: Float, y: Float): Boolean {
+        val centerX = bounds.centerX()
+        val centerY = bounds.centerY()
+
+        if (rotation != 0f) {
+            val rotatedPoint = rotatePoint(x, y, centerX, centerY, -rotation)
+            return bounds.contains(rotatedPoint.x, rotatedPoint.y)
+        }
+        return bounds.contains(x, y)
+    }
 
     override fun move(dx: Float, dy: Float) {
         x += dx
