@@ -80,6 +80,33 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             app:tint="#424242" />
 
+        <ImageButton
+            android:id="@+id/btnNew"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_new"
+            android:contentDescription="@string/new_session"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#424242" />
+
+        <ImageButton
+            android:id="@+id/btnSave"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_save"
+            android:contentDescription="@string/save_session"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#424242" />
+
+        <ImageButton
+            android:id="@+id/btnLoad"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_load"
+            android:contentDescription="@string/load_session"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#424242" />
+
 
         <View
             android:layout_width="1dp"

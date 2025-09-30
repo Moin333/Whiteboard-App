@@ -11,6 +11,7 @@ activity = "1.11.0"
 constraintlayout = "2.1.4"
 lifecycle = "2.8.1"
 realm = "1.11.0"
+json = "20231013"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -24,6 +25,7 @@ androidx-constraintlayout = { group = "androidx.constraintlayout", name = "const
 androidx-lifecycle-viewmodel-ktx = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-ktx", version.ref = "lifecycle" }
 androidx-lifecycle-livedata-ktx = { group = "androidx.lifecycle", name = "lifecycle-livedata-ktx", version.ref = "lifecycle" }
 realm-base = { group = "io.realm.kotlin", name = "library-base", version.ref = "realm" }
+json = { group = "org.json", name = "json", version.ref = "json" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

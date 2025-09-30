@@ -7,12 +7,20 @@ import androidx.lifecycle.ViewModel
 import com.example.whiteboardapp.manager.ObjectManager
 import com.example.whiteboardapp.model.DrawingObject
 import com.example.whiteboardapp.model.DrawingTool
+import androidx.lifecycle.viewModelScope
+import com.example.whiteboardapp.data.WhiteboardRepository
+import com.example.whiteboardapp.data.db.WhiteboardSession
+import kotlinx.coroutines.launch
+import org.mongodb.kbson.ObjectId
 
 class WhiteboardViewModel : ViewModel() {
-
+    private val repository = WhiteboardRepository()
     val objectManager = ObjectManager()
 
+
     // --- LiveData ---
+    private val _currentSessionId = MutableLiveData<ObjectId?>(null)
+    val currentSessionId: LiveData<ObjectId?> = _currentSessionId
     private val _currentTool = MutableLiveData<DrawingTool>(DrawingTool.Pen)
     val currentTool: LiveData<DrawingTool> = _currentTool
 
@@ -35,6 +43,9 @@ class WhiteboardViewModel : ViewModel() {
     val eraserRadius: LiveData<Float> = _eraserRadius
 
     // --- Public Methods ---
+    suspend fun getSessions(): List<WhiteboardSession> {
+        return repository.getAllSessions()
+    }
     fun selectTool(tool: DrawingTool) {
         _currentTool.value = tool
         // Clear selection when switching tools (except for Select tool)
@@ -98,6 +109,45 @@ class WhiteboardViewModel : ViewModel() {
 
     fun updateObject(obj: DrawingObject) {
         objectManager.updateObject(obj)
+        updateObjectsLiveData()
+    }
+
+    fun saveCurrentSession(name: String) {
+        viewModelScope.launch {
+            val savedId = repository.saveOrUpdateSession(
+                _currentSessionId.value,
+                name,
+                objectManager.getObjects()
+            )
+            _currentSessionId.value = savedId
+        }
+    }
+
+    fun saveAsNewSession(name: String) {
+        viewModelScope.launch {
+            // We force sessionId to be null to create a new entry
+            val savedId = repository.saveOrUpdateSession(
+                null,
+                name,
+                objectManager.getObjects()
+            )
+            _currentSessionId.value = savedId // The app is now tracking the new copy
+        }
+    }
+
+    fun loadSession(sessionId: ObjectId) {
+        viewModelScope.launch {
+            val objects = repository.loadSession(sessionId)
+            objectManager.clear()
+            objects.forEach { objectManager.addObject(it) }
+            _currentSessionId.value = sessionId
+            updateObjectsLiveData() // Refresh the UI
+        }
+    }
+
+    fun createNewSession() {
+        objectManager.clear()
+        _currentSessionId.value = null
         updateObjectsLiveData()
     }
 

@@ -18,6 +18,11 @@ import com.example.whiteboardapp.view.WhiteboardView
 import com.example.whiteboardapp.viewmodel.WhiteboardViewModel
 import androidx.core.graphics.toColorInt
 import com.example.whiteboardapp.model.ShapeType
+import android.widget.EditText
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
@@ -35,6 +40,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var circleButton: ImageButton
     private lateinit var textButton: ImageButton
     private lateinit var fillToggle: ToggleButton
+    private lateinit var newButton: ImageButton
+    private lateinit var saveButton: ImageButton
+    private lateinit var loadButton: ImageButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +66,9 @@ class MainActivity : AppCompatActivity() {
         circleButton = findViewById(R.id.btnCircle)
         textButton = findViewById(R.id.btnText)
         fillToggle = findViewById(R.id.btnFillToggle)
+        newButton = findViewById(R.id.btnNew)
+        saveButton = findViewById(R.id.btnSave)
+        loadButton = findViewById(R.id.btnLoad)
 
         penButton.setOnClickListener {
             selectTool(DrawingTool.Pen)
@@ -91,9 +102,62 @@ class MainActivity : AppCompatActivity() {
             selectTool(DrawingTool.Text)
         }
 
-        // Fill toggle button setup
         fillToggle.setOnCheckedChangeListener { _, isChecked ->
             viewModel.toggleFill(isChecked)
+        }
+
+        newButton.setOnClickListener {
+            viewModel.createNewSession()
+            Toast.makeText(this, "New canvas created", Toast.LENGTH_SHORT).show()
+        }
+
+        saveButton.setOnClickListener {
+            val editText = EditText(this).apply {
+                hint = "Enter session name"
+            }
+
+            val builder = AlertDialog.Builder(this)
+                .setTitle("Save Whiteboard")
+                .setView(editText)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save as New") { _, _ ->
+                    val name = editText.text.toString().ifBlank { "Untitled Session" }
+                    viewModel.saveAsNewSession(name)
+                    Toast.makeText(this, "Saved as a new session!", Toast.LENGTH_SHORT).show()
+                }
+
+            if (viewModel.currentSessionId.value != null) {
+                builder.setNeutralButton("Overwrite") { _, _ ->
+                    val name = editText.text.toString().ifBlank { "Untitled Session" }
+                    viewModel.saveCurrentSession(name) // This calls the original save function
+                    Toast.makeText(this, "Session overwritten!", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            // This will now correctly show the dialog
+            builder.show()
+        }
+
+        loadButton.setOnClickListener {
+            // Launch a coroutine to fetch the sessions
+            lifecycleScope.launch {
+                val sessions = viewModel.getSessions()
+                val sessionNames = sessions.map { it.name }.toTypedArray()
+
+                if (sessionNames.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "No saved sessions found.", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Load Session")
+                    .setItems(sessionNames) { _, which ->
+                        val selectedSession = sessions[which]
+                        viewModel.loadSession(selectedSession.id)
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
         }
 
         // Color Palette

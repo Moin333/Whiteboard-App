@@ -1,24 +1,26 @@
 package com.example.whiteboardapp
 
 import android.app.Application
-import com.example.whiteboardapp.data.db.DrawingPathRealmObject
-import com.example.whiteboardapp.data.db.DrawingPoint
-import io.realm.kotlin.Realm
+import com.example.whiteboardapp.data.db.DrawingObjectRealm
+import com.example.whiteboardapp.data.db.WhiteboardSession
 import io.realm.kotlin.RealmConfiguration
 
 class WhiteboardApplication : Application() {
     companion object {
-        lateinit var realm: Realm
+        lateinit var config: RealmConfiguration
+            private set
     }
 
     override fun onCreate() {
         super.onCreate()
-        val config = RealmConfiguration.create(
+        config = RealmConfiguration.Builder(
             schema = setOf(
-                DrawingPathRealmObject::class,
-                DrawingPoint::class
+                WhiteboardSession::class,
+                DrawingObjectRealm::class
             )
         )
-        realm = Realm.open(config)
+            .name("whiteboard.realm")
+            .directory(filesDir.path)
+            .build()
     }
 }
