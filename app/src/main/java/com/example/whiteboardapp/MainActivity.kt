@@ -32,6 +32,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var eraserSizeSelector: EraserSizeSelector
     private lateinit var strokeWidthSpinner: Spinner
     private lateinit var undoButton: ImageButton
+    private lateinit var redoButton: ImageButton
     private lateinit var penButton: ImageButton
     private lateinit var eraserButton: ImageButton
     private lateinit var selectButton: ImageButton
@@ -60,6 +61,7 @@ class MainActivity : AppCompatActivity() {
         penButton = findViewById(R.id.btnPen)
         eraserButton = findViewById(R.id.btnEraser)
         undoButton = findViewById(R.id.btnUndo)
+        redoButton = findViewById(R.id.btnRedo)
         selectButton = findViewById(R.id.btnSelect)
         lineButton = findViewById(R.id.btnLine)
         rectButton = findViewById(R.id.btnRectangle)
@@ -80,6 +82,10 @@ class MainActivity : AppCompatActivity() {
 
         undoButton.setOnClickListener {
             viewModel.undo()
+        }
+
+        redoButton.setOnClickListener {
+            viewModel.redo()
         }
 
         selectButton.setOnClickListener {
@@ -232,7 +238,12 @@ class MainActivity : AppCompatActivity() {
 
         viewModel.canUndo.observe(this) { canUndo ->
             undoButton.isEnabled = canUndo
-            undoButton.alpha = if (canUndo) 1.0f else 0.5f
+            undoButton.alpha = if (canUndo) 1.0f else 0.4f
+        }
+
+        viewModel.canRedo.observe(this) { canRedo ->
+            redoButton.isEnabled = canRedo
+            redoButton.alpha = if (canRedo) 1.0f else 0.4f
         }
 
         // Observe fill state to sync the toggle button

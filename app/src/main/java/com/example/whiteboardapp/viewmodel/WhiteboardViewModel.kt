@@ -1,6 +1,7 @@
 package com.example.whiteboardapp.viewmodel
 
 import android.graphics.Color
+import android.graphics.PointF
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -10,17 +11,31 @@ import com.example.whiteboardapp.model.DrawingTool
 import androidx.lifecycle.viewModelScope
 import com.example.whiteboardapp.data.WhiteboardRepository
 import com.example.whiteboardapp.data.db.WhiteboardSession
+import com.example.whiteboardapp.manager.CommandManager
+import com.example.whiteboardapp.model.DrawingCommand
 import kotlinx.coroutines.launch
 import org.mongodb.kbson.ObjectId
 
 class WhiteboardViewModel : ViewModel() {
     private val repository = WhiteboardRepository()
     val objectManager = ObjectManager()
+    private val commandManager = CommandManager()
 
 
-    // --- LiveData ---
+    // LiveData for Undo/Redo states from CommandManager
+    val canUndo: LiveData<Boolean> = commandManager.canUndo
+    val canRedo: LiveData<Boolean> = commandManager.canRedo
+    val historyChanged: LiveData<Pair<Int, Int>> = commandManager.historyChanged
+
+    // State for tracking object transformations
+    private var preTransformState: DrawingObject? = null
+    private var preMovePosition: PointF? = null
+
+    // LiveData for the UI
     private val _currentSessionId = MutableLiveData<ObjectId?>(null)
     val currentSessionId: LiveData<ObjectId?> = _currentSessionId
+    private val _drawingObjects = MutableLiveData<List<DrawingObject>>(emptyList())
+    val drawingObjects: LiveData<List<DrawingObject>> = _drawingObjects
     private val _currentTool = MutableLiveData<DrawingTool>(DrawingTool.Pen)
     val currentTool: LiveData<DrawingTool> = _currentTool
 
@@ -32,12 +47,6 @@ class WhiteboardViewModel : ViewModel() {
 
     private val _isFillEnabled = MutableLiveData(false)
     val isFillEnabled: LiveData<Boolean> = _isFillEnabled
-
-    private val _drawingObjects = MutableLiveData<List<DrawingObject>>(emptyList())
-    val drawingObjects: LiveData<List<DrawingObject>> = _drawingObjects
-
-    private val _canUndo = MutableLiveData(false)
-    val canUndo: LiveData<Boolean> = _canUndo
 
     private val _eraserRadius = MutableLiveData(20f)
     val eraserRadius: LiveData<Float> = _eraserRadius
@@ -67,12 +76,14 @@ class WhiteboardViewModel : ViewModel() {
     }
 
     fun addObject(obj: DrawingObject) {
-        objectManager.addObject(obj)
+        val command = DrawingCommand.AddObjectCommand(obj)
+        commandManager.executeCommand(command, objectManager)
         updateObjectsLiveData()
     }
 
-    fun undo() {
-        objectManager.undo()
+    fun updateObject(oldState: DrawingObject, newState: DrawingObject) {
+        val command = DrawingCommand.ModifyObjectCommand(oldState, newState)
+        commandManager.executeCommand(command, objectManager)
         updateObjectsLiveData()
     }
 
@@ -90,6 +101,7 @@ class WhiteboardViewModel : ViewModel() {
 
     fun clearCanvas() {
         objectManager.clear()
+        commandManager.clear()
         updateObjectsLiveData()
     }
 
@@ -99,17 +111,16 @@ class WhiteboardViewModel : ViewModel() {
 
     fun eraseObjectsAt(x: Float, y: Float) {
         val radius = _eraserRadius.value ?: 20f
-        val erasedObjects = objectManager.eraseObjectsAt(x, y, radius)
+        val objectsToErase = objectManager.getObjectsAt(x, y, radius)
 
-        // Only update if objects were actually erased
-        if (erasedObjects.isNotEmpty()) {
+        if (objectsToErase.isNotEmpty()) {
+            val commands = objectsToErase.map { (obj, index) ->
+                DrawingCommand.RemoveObjectCommand(obj, index)
+            }
+            val batchCommand = DrawingCommand.BatchCommand(commands, "Erase objects")
+            commandManager.executeCommand(batchCommand, objectManager)
             updateObjectsLiveData()
         }
-    }
-
-    fun updateObject(obj: DrawingObject) {
-        objectManager.updateObject(obj)
-        updateObjectsLiveData()
     }
 
     fun saveCurrentSession(name: String) {
@@ -147,15 +158,53 @@ class WhiteboardViewModel : ViewModel() {
 
     fun createNewSession() {
         objectManager.clear()
+        commandManager.clear()
         _currentSessionId.value = null
+        updateObjectsLiveData()
+    }
+
+    fun onTransformStart(obj: DrawingObject) {
+        preTransformState = obj.clone() // Requires a deep copy method on DrawingObject
+    }
+
+    fun onTransformEnd(currentObject: DrawingObject) {
+        preTransformState?.let { oldState ->
+            val command = DrawingCommand.ModifyObjectCommand(oldState, currentObject.clone())
+            commandManager.executeCommand(command, objectManager)
+            updateObjectsLiveData()
+        }
+        preTransformState = null
+    }
+
+    fun onMoveStart(obj: DrawingObject) {
+        preMovePosition = objectManager.getObjectPosition(obj.id)
+    }
+
+    fun onMoveEnd(obj: DrawingObject) {
+        preMovePosition?.let { oldPos ->
+            val newPos = objectManager.getObjectPosition(obj.id)
+            if (newPos != null && (oldPos.x != newPos.x || oldPos.y != newPos.y)) {
+                val command = DrawingCommand.MoveObjectCommand(obj.id, newPos.x, newPos.y, oldPos.x, oldPos.y)
+                commandManager.executeCommand(command, objectManager)
+                updateObjectsLiveData()
+            }
+        }
+        preMovePosition = null
+    }
+
+    fun undo() {
+        commandManager.undo(objectManager)
+        updateObjectsLiveData()
+    }
+
+    fun redo() {
+        commandManager.redo(objectManager)
         updateObjectsLiveData()
     }
 
     // --- Private Helper ---
     private fun updateObjectsLiveData() {
-        val currentObjects = objectManager.getObjects()
-        _drawingObjects.value = currentObjects
-        _canUndo.value = currentObjects.isNotEmpty()
+        _drawingObjects.value = objectManager.getObjects()
     }
 
     override fun onCleared() {

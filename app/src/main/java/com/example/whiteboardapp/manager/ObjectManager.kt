@@ -4,6 +4,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
+import android.graphics.PointF
 import com.example.whiteboardapp.model.DrawingObject
 import com.example.whiteboardapp.model.HandleType
 import com.example.whiteboardapp.model.TransformHandleManager
@@ -180,6 +181,56 @@ class ObjectManager {
         }
 
         return erasedObjects
+    }
+
+    fun getObjectsAt(centerX: Float, centerY: Float, radius: Float): List<Pair<DrawingObject, Int>> {
+        val foundObjects = mutableListOf<Pair<DrawingObject, Int>>()
+
+        objects.forEachIndexed { index, obj ->
+            if (erasureHandler.canEraseObject(obj, centerX, centerY, radius)) {
+                foundObjects.add(Pair(obj, index))
+            }
+        }
+        return foundObjects
+    }
+
+    fun getObjectById(id: String): DrawingObject? = objects.find { it.id == id }
+
+    fun getObjectIndex(obj: DrawingObject): Int = objects.indexOf(obj)
+
+    fun getObjectPosition(objectId: String): PointF? {
+        return getObjectById(objectId)?.let {
+            val bounds = it.bounds
+            PointF(bounds.left, bounds.top)
+        }
+    }
+
+    fun removeObjectById(id: String): DrawingObject? {
+        val obj = getObjectById(id)
+        if (obj != null) {
+            objects.remove(obj)
+            if (obj == selectedObject) {
+                clearSelection()
+            }
+        }
+        return obj
+    }
+
+    fun addObjectAt(obj: DrawingObject, index: Int) {
+        if (index in 0..objects.size) {
+            objects.add(index, obj)
+        } else {
+            objects.add(obj) // Add to the end if index is out of bounds
+        }
+    }
+
+    fun setObjectPosition(id: String, x: Float, y: Float) {
+        getObjectById(id)?.let { obj ->
+            val currentBounds = obj.bounds
+            val dx = x - currentBounds.left
+            val dy = y - currentBounds.top
+            obj.move(dx, dy)
+        }
     }
 
     fun updateObject(updatedObject: DrawingObject) {

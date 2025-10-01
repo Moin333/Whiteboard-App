@@ -71,7 +71,7 @@ class WhiteboardRepository {
     }
 
     // Get all sessions as a Flow for reactive updates
-    fun getAllSessions(): List<WhiteboardSession> {
+    suspend fun getAllSessions(): List<WhiteboardSession> {
         val realm = Realm.open(WhiteboardApplication.config)
         var sessions: List<WhiteboardSession>
         try {

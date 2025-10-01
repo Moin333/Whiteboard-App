@@ -16,10 +16,20 @@
             android:id="@+id/btnUndo"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/undo"
             android:src="@drawable/ic_undo"
+            android:contentDescription="@string/undo"
+            android:background="?attr/selectableItemBackgroundBorderless"
             app:tint="#424242" />
+
+        <ImageButton
+            android:id="@+id/btnRedo"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_redo"
+            android:contentDescription="@string/redo"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#424242" />
+
         <ImageButton
             android:id="@+id/btnPen"
             android:layout_width="48dp"

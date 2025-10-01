@@ -205,7 +205,7 @@ class WhiteboardView @JvmOverloads constructor(
             if (clickedObject is TextObject) {
                 // Edit existing text object
                 TextEditDialog(context, clickedObject) { updatedObject ->
-                    viewModel?.updateObject(updatedObject)
+                    viewModel?.updateObject(clickedObject,updatedObject)
                 }.show()
             } else {
                 // Create a new text object

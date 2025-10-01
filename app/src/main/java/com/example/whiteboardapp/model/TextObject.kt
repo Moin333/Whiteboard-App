@@ -133,4 +133,8 @@ data class TextObject(
         x += dx
         y += dy
     }
+
+    override fun clone(): DrawingObject {
+        return this.copy()
+    }
 }

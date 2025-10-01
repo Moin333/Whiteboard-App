@@ -21,6 +21,8 @@ sealed class DrawingObject {
     abstract fun contains(x: Float, y: Float): Boolean
     abstract fun move(dx: Float, dy: Float)
 
+    abstract fun clone(): DrawingObject
+
     protected fun rotatePoint(x: Float, y: Float, cx: Float, cy: Float, angle: Float): PointF {
         val rad = Math.toRadians(angle.toDouble())
         val cos = cos(rad).toFloat()
@@ -55,6 +57,13 @@ sealed class DrawingObject {
         override fun move(dx: Float, dy: Float) {
             path.offset(dx, dy)
             bounds.offset(dx, dy)
+        }
+
+        override fun clone(): DrawingObject {
+            return this.copy(
+                path = Path(this.path),
+                paint = Paint(this.paint)
+            )
         }
     }
 
@@ -122,6 +131,13 @@ sealed class DrawingObject {
             // Draw fill first (if enabled), then stroke
             fillPaint?.let { canvas.drawPath(path, it) }
             canvas.drawPath(path, paint)
+        }
+
+        override fun clone(): DrawingObject {
+            return this.copy(
+                paint = Paint(this.paint),
+                fillPaint = this.fillPaint?.let { Paint(it) }
+            )
         }
 
         override fun contains(x: Float, y: Float): Boolean {
