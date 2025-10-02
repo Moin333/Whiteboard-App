@@ -14,6 +14,16 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Zoom Controls positioned in top-right corner -->
+    <com.example.whiteboardapp.view.ZoomControlsView
+        android:id="@+id/zoomControls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:elevation="4dp" />
+
     <LinearLayout
         android:id="@+id/toolbarContainer"
         android:layout_width="match_parent"

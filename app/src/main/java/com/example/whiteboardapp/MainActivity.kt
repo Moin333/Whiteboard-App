@@ -15,6 +15,7 @@ import androidx.core.view.isVisible
 import com.example.whiteboardapp.model.DrawingTool
 import com.example.whiteboardapp.view.EraserSizeSelector
 import com.example.whiteboardapp.view.WhiteboardView
+import com.example.whiteboardapp.view.ZoomControlsView
 import com.example.whiteboardapp.viewmodel.WhiteboardViewModel
 import androidx.core.graphics.toColorInt
 import com.example.whiteboardapp.model.ShapeType
@@ -28,6 +29,7 @@ class MainActivity : AppCompatActivity() {
 
     private val viewModel: WhiteboardViewModel by viewModels()
     private lateinit var whiteboardView: WhiteboardView
+    private lateinit var zoomControls: ZoomControlsView
     private lateinit var colorPaletteContainer: View
     private lateinit var eraserSizeSelector: EraserSizeSelector
     private lateinit var strokeWidthSpinner: Spinner
@@ -52,8 +54,31 @@ class MainActivity : AppCompatActivity() {
         whiteboardView = findViewById(R.id.whiteboardView)
         whiteboardView.setViewModel(viewModel)
 
+        // Initialize zoom controls
+        setupZoomControls()
+
         setupToolbar()
         observeViewModel()
+    }
+
+    private fun setupZoomControls() {
+        zoomControls = findViewById(R.id.zoomControls)
+
+        zoomControls.onZoomIn = {
+            whiteboardView.zoomIn()
+        }
+
+        zoomControls.onZoomOut = {
+            whiteboardView.zoomOut()
+        }
+
+        zoomControls.onZoomReset = {
+            whiteboardView.resetZoom()
+        }
+
+        zoomControls.onZoomFit = {
+            whiteboardView.fitToScreen()
+        }
     }
 
     private fun setupToolbar() {
@@ -135,17 +160,15 @@ class MainActivity : AppCompatActivity() {
             if (viewModel.currentSessionId.value != null) {
                 builder.setNeutralButton("Overwrite") { _, _ ->
                     val name = editText.text.toString().ifBlank { "Untitled Session" }
-                    viewModel.saveCurrentSession(name) // This calls the original save function
+                    viewModel.saveCurrentSession(name)
                     Toast.makeText(this, "Session overwritten!", Toast.LENGTH_SHORT).show()
                 }
             }
 
-            // This will now correctly show the dialog
             builder.show()
         }
 
         loadButton.setOnClickListener {
-            // Launch a coroutine to fetch the sessions
             lifecycleScope.launch {
                 val sessions = viewModel.getSessions()
                 val sessionNames = sessions.map { it.name }.toTypedArray()
@@ -185,6 +208,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectTool(tool: DrawingTool) {
         viewModel.selectTool(tool)
+
+        // Show/hide zoom controls based on tool
+        // Hide zoom controls when using drawing tools to avoid UI clutter
+        zoomControls.visibility = when(tool) {
+            is DrawingTool.Select -> View.VISIBLE
+            else -> View.GONE
+        }
     }
 
     private fun updateToolSelection(tool: DrawingTool) {
@@ -271,11 +301,9 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(80, 80).also {
                     it.setMargins(12, 12, 12, 12)
                 }
-                // Store the color as a tag for later reference
                 tag = color
                 setBackgroundColor(color)
 
-                // Add selection indicator for first color (default)
                 if (index == 0) {
                     isSelected = true
                     scaleX = 1.2f
@@ -295,7 +323,6 @@ class MainActivity : AppCompatActivity() {
     private fun updateColorSelection(selectedView: View) {
         val colorPalette = findViewById<LinearLayout>(R.id.colorPalette)
 
-        // Reset all color views to unselected state
         for (i in 0 until colorPalette.childCount) {
             val child = colorPalette.getChildAt(i)
             val color = child.tag as Int
@@ -307,7 +334,6 @@ class MainActivity : AppCompatActivity() {
             child.setBackgroundColor(color)
         }
 
-        // Highlight selected color view with scale and elevation
         selectedView.isSelected = true
         selectedView.scaleX = 1.2f
         selectedView.scaleY = 1.2f
