@@ -1,5 +1,6 @@
 package com.example.whiteboardapp.viewmodel
 
+import android.content.Context
 import android.graphics.Color
 import android.graphics.PointF
 import androidx.lifecycle.LiveData
@@ -12,9 +13,11 @@ import androidx.lifecycle.viewModelScope
 import com.example.whiteboardapp.data.WhiteboardRepository
 import com.example.whiteboardapp.data.db.WhiteboardSession
 import com.example.whiteboardapp.manager.CommandManager
+import com.example.whiteboardapp.manager.ExportManager
 import com.example.whiteboardapp.model.DrawingCommand
 import kotlinx.coroutines.launch
 import org.mongodb.kbson.ObjectId
+import java.io.File
 
 class WhiteboardViewModel : ViewModel() {
     private val repository = WhiteboardRepository()
@@ -50,6 +53,9 @@ class WhiteboardViewModel : ViewModel() {
 
     private val _eraserRadius = MutableLiveData(20f)
     val eraserRadius: LiveData<Float> = _eraserRadius
+
+    private val _isExporting = MutableLiveData(false)
+    val isExporting: LiveData<Boolean> = _isExporting
 
     // --- Public Methods ---
     suspend fun getSessions(): List<WhiteboardSession> {
@@ -200,6 +206,32 @@ class WhiteboardViewModel : ViewModel() {
     fun redo() {
         commandManager.redo(objectManager)
         updateObjectsLiveData()
+    }
+
+    fun exportCanvas(
+        context: Context,
+        options: ExportManager.ExportOptions,
+        outputFile: File,
+        canvasWidth: Int,
+        canvasHeight: Int,
+        onComplete: (Result<File>) -> Unit
+    ) {
+        viewModelScope.launch {
+            _isExporting.value = true
+            try {
+                val exportManager = ExportManager(context)
+                val result = exportManager.exportCanvas(
+                    objectManager.getObjects(),
+                    canvasWidth,
+                    canvasHeight,
+                    options,
+                    outputFile
+                )
+                onComplete(result)
+            } finally {
+                _isExporting.value = false
+            }
+        }
     }
 
     // --- Private Helper ---

@@ -11,6 +11,7 @@ import android.view.View
 import android.animation.ValueAnimator
 import android.view.animation.DecelerateInterpolator
 import androidx.core.graphics.createBitmap
+import com.example.whiteboardapp.manager.AlignmentHelper
 import com.example.whiteboardapp.manager.ShapeDrawingHandler
 import com.example.whiteboardapp.manager.CanvasTransformManager
 import com.example.whiteboardapp.model.DrawingObject
@@ -45,7 +46,11 @@ class WhiteboardView @JvmOverloads constructor(
     private var isScaling = false
     private var isPanning = false
     private var activePointerId = MotionEvent.INVALID_POINTER_ID
-    private var hasSelectedObject = false // Track if we have a selected object
+
+    // Track canvas panning state for select mode
+    private var isCanvasPanning = false
+    private var panStartX = 0f
+    private var panStartY = 0f
 
     // Canvas size multiplier (3x of view size)
     private val canvasMultiplier = 3f
@@ -86,12 +91,20 @@ class WhiteboardView @JvmOverloads constructor(
     // Visible bounds for optimization
     private var visibleBounds = RectF()
 
+    private val alignmentHelper = AlignmentHelper()
+    private var currentAlignmentGuides = listOf<AlignmentHelper.AlignmentGuide>()
+    private var alignmentEnabled = true // Can be toggled via settings
+
     init {
         scaleGestureDetector = ScaleGestureDetector(context, ScaleListener())
         gestureDetector = GestureDetector(context, GestureListener())
 
         // Enable hardware acceleration for better performance
         setLayerType(LAYER_TYPE_HARDWARE, null)
+    }
+
+    fun setAlignmentEnabled(enabled: Boolean) {
+        alignmentEnabled = enabled
     }
 
     fun setViewModel(vm: WhiteboardViewModel) {
@@ -103,9 +116,9 @@ class WhiteboardView @JvmOverloads constructor(
         viewModel?.apply {
             currentTool.observeForever { tool ->
                 this@WhiteboardView.currentTool = tool
-                // Reset pan/zoom state when switching tools
+                isTransforming = false
+                isCanvasPanning = false
                 isPanning = false
-                isScaling = false
             }
             strokeWidth.observeForever { width -> drawPaint.strokeWidth = width }
             strokeColor.observeForever { color -> drawPaint.color = color }
@@ -132,24 +145,43 @@ class WhiteboardView @JvmOverloads constructor(
         drawCanvas.drawColor(Color.WHITE)
 
         // Center the canvas initially
-        transformManager.centerCanvas(
-            w.toFloat(), h.toFloat(),
-            canvasWidth.toFloat(), canvasHeight.toFloat()
-        )
+        if (!::canvasBitmap.isInitialized) {
+            transformManager.centerCanvas(
+                w.toFloat(), h.toFloat(),
+                canvasWidth.toFloat(), canvasHeight.toFloat()
+            )
+        }
 
         refreshCanvas()
     }
 
     private fun refreshCanvas() {
         if (::drawCanvas.isInitialized) {
-            // Clear canvas
-            drawCanvas.drawColor(Color.WHITE, PorterDuff.Mode.SRC)
+            // Get visible bounds for optimization
+            visibleBounds = transformManager.getVisibleBounds(width.toFloat(), height.toFloat())
 
-            // Draw grid for visual reference
-            drawGrid(drawCanvas)
+            // Clear only the visible area if zoomed in
+            if (transformManager.currentScale > 1.5f) {
+                // Clear visible region
+                drawCanvas.save()
+                drawCanvas.clipRect(visibleBounds)
+                drawCanvas.drawColor(Color.WHITE, PorterDuff.Mode.SRC)
+                drawCanvas.restore()
 
-            // Draw all objects
-            allObjects.forEach { it.draw(drawCanvas) }
+                // Draw grid only in visible area
+                drawGridInBounds(drawCanvas, visibleBounds)
+
+                // Draw only visible objects
+                val visibleObjects = allObjects.filter { obj ->
+                    RectF.intersects(obj.bounds, visibleBounds)
+                }
+                visibleObjects.forEach { it.draw(drawCanvas) }
+            } else {
+                // Full canvas redraw when zoomed out
+                drawCanvas.drawColor(Color.WHITE, PorterDuff.Mode.SRC)
+                drawGrid(drawCanvas)
+                allObjects.forEach { it.draw(drawCanvas) }
+            }
 
             // Draw selection if present
             viewModel?.let {
@@ -159,6 +191,26 @@ class WhiteboardView @JvmOverloads constructor(
             }
 
             invalidate()
+        }
+    }
+
+    private fun drawGridInBounds(canvas: Canvas, bounds: RectF) {
+        val gridSize = 50f
+        val startX = (bounds.left / gridSize).toInt() * gridSize
+        val endX = ((bounds.right / gridSize).toInt() + 1) * gridSize
+        val startY = (bounds.top / gridSize).toInt() * gridSize
+        val endY = ((bounds.bottom / gridSize).toInt() + 1) * gridSize
+
+        var x = startX
+        while (x <= endX) {
+            canvas.drawLine(x, bounds.top, x, bounds.bottom, gridPaint)
+            x += gridSize
+        }
+
+        var y = startY
+        while (y <= endY) {
+            canvas.drawLine(bounds.left, y, bounds.right, y, gridPaint)
+            y += gridSize
         }
     }
 
@@ -190,6 +242,12 @@ class WhiteboardView @JvmOverloads constructor(
             canvas.drawPath(currentPath, drawPaint)
         } else if (currentTool is DrawingTool.Shape) {
             shapeDrawingHandler.drawPreview(canvas)
+        }
+
+        // Draw alignment guides when moving objects
+        if (currentAlignmentGuides.isNotEmpty()) {
+            val visibleBounds = transformManager.getVisibleBounds(width.toFloat(), height.toFloat())
+            alignmentHelper.drawGuides(canvas, currentAlignmentGuides, visibleBounds)
         }
 
         canvas.restore()
@@ -227,21 +285,17 @@ class WhiteboardView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
 
-        // Check if we're in select mode and have a selected object
-        hasSelectedObject = currentTool is DrawingTool.Select &&
-                viewModel?.objectManager?.getSelectedObject() != null
-
         // Handle velocity tracking
         if (velocityTracker == null) {
             velocityTracker = VelocityTracker.obtain()
         }
         velocityTracker?.addMovement(event)
 
-        // Only process gesture detectors if we're not in select mode with a selected object
-        if (!hasSelectedObject) {
-            scaleGestureDetector.onTouchEvent(event)
-            gestureDetector.onTouchEvent(event)
-        }
+        // Always process scale detector for pinch zoom (two fingers)
+        scaleGestureDetector.onTouchEvent(event)
+
+        // Process gesture detector only for double tap
+        gestureDetector.onTouchEvent(event)
 
         when (action) {
             MotionEvent.ACTION_DOWN -> {
@@ -249,43 +303,86 @@ class WhiteboardView @JvmOverloads constructor(
                 activePointerId = event.getPointerId(0)
                 lastTouchX = event.x
                 lastTouchY = event.y
+                panStartX = event.x
+                panStartY = event.y
 
-                // Handle tool-specific actions
-                if (!isScaling && !isPanning && event.pointerCount == 1) {
+                // For select mode, determine if we're selecting an object or panning
+                if (currentTool is DrawingTool.Select && event.pointerCount == 1) {
+                    val transformed = transformManager.getTransformedPoint(event.x, event.y)
+                    val objectManager = viewModel?.objectManager
+                    val clickedObject = objectManager?.selectObjectAt(transformed.x, transformed.y)
+
+                    if (clickedObject != null) {
+                        // We clicked on an object
+                        isTransforming = objectManager.isTransforming()
+                        isCanvasPanning = false
+                        lastTouchX = transformed.x
+                        lastTouchY = transformed.y
+                        refreshCanvas()
+                    } else {
+                        // Clicked on empty space - start canvas panning
+                        isCanvasPanning = true
+                        objectManager?.clearSelection()
+                        refreshCanvas()
+                    }
+                } else if (!isScaling && event.pointerCount == 1) {
+                    // Other tools
                     handleToolAction(event, MotionEvent.ACTION_DOWN)
                 }
             }
 
             MotionEvent.ACTION_MOVE -> {
-                // Allow panning only when not in select mode with a selected object
-                if (!hasSelectedObject && (event.pointerCount == 2 || isPanning)) {
-                    // Panning is handled by gesture detector
-                    return true
+                if (currentTool is DrawingTool.Select && event.pointerCount == 1) {
+                    if (isCanvasPanning) {
+                        // Pan the canvas with one finger in select mode
+                        val dx = event.x - panStartX
+                        val dy = event.y - panStartY
+                        panStartX = event.x
+                        panStartY = event.y
+
+                        transformManager.translate(dx, dy)
+                        transformManager.constrainTranslation(
+                            canvasWidth.toFloat(), canvasHeight.toFloat(),
+                            width.toFloat(), height.toFloat()
+                        )
+                        invalidate()
+                    } else {
+                        // Handle object manipulation
+                        val transformed = transformManager.getTransformedPoint(event.x, event.y)
+                        handleSelection(transformed.x, transformed.y, MotionEvent.ACTION_MOVE)
+                    }
                 } else if (!isScaling && event.pointerCount == 1) {
+                    // Other tools
                     handleToolAction(event, MotionEvent.ACTION_MOVE)
                 }
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (!isScaling && !isPanning && event.pointerCount == 1) {
-                    handleToolAction(event, MotionEvent.ACTION_UP)
-                }
+                if (currentTool is DrawingTool.Select && !isScaling) {
+                    if (!isCanvasPanning) {
+                        val transformed = transformManager.getTransformedPoint(event.x, event.y)
+                        handleSelection(transformed.x, transformed.y, MotionEvent.ACTION_UP)
+                    }
 
-                // Handle fling only if not in select mode with selected object
-                if (!hasSelectedObject) {
-                    velocityTracker?.let { tracker ->
-                        tracker.computeCurrentVelocity(1000)
-                        val velocityX = tracker.xVelocity
-                        val velocityY = tracker.yVelocity
+                    // Handle fling for canvas panning
+                    if (isCanvasPanning) {
+                        velocityTracker?.let { tracker ->
+                            tracker.computeCurrentVelocity(1000)
+                            val velocityX = tracker.xVelocity
+                            val velocityY = tracker.yVelocity
 
-                        if (isPanning && (abs(velocityX) > 100 || abs(velocityY) > 100)) {
-                            handleFling(velocityX, velocityY)
+                            if (abs(velocityX) > 100 || abs(velocityY) > 100) {
+                                handleFling(velocityX, velocityY)
+                            }
                         }
                     }
+                } else if (!isScaling && event.pointerCount == 1) {
+                    handleToolAction(event, MotionEvent.ACTION_UP)
                 }
 
                 activePointerId = MotionEvent.INVALID_POINTER_ID
                 isPanning = false
+                isCanvasPanning = false
                 velocityTracker?.recycle()
                 velocityTracker = null
             }
@@ -381,15 +478,42 @@ class WhiteboardView @JvmOverloads constructor(
                 isTransforming = objectManager.isTransforming()
                 lastTouchX = x
                 lastTouchY = y
+                currentAlignmentGuides = emptyList() // Clear guides on new selection
                 refreshCanvas()
             }
             MotionEvent.ACTION_MOVE -> {
+                val selectedObj = objectManager.getSelectedObject()
                 if (isTransforming) {
                     objectManager.updateTransform(x, y)
-                } else if (objectManager.getSelectedObject() != null) {
+                } else if (selectedObj != null) {
                     val dx = x - lastTouchX
                     val dy = y - lastTouchY
                     objectManager.moveSelected(dx, dy)
+
+                    if (alignmentEnabled && !isTransforming) {
+                        currentAlignmentGuides = alignmentHelper.findAlignmentGuides(
+                            selectedObj,
+                            allObjects.filter { it.id != selectedObj.id },
+                            threshold = 15f / transformManager.currentScale // Adjust for zoom
+                        )
+
+                        // If there are guides, snap to them
+                        if (currentAlignmentGuides.isNotEmpty()) {
+                            val currentPos = PointF(x, y)
+                            val snappedPos = alignmentHelper.snapToGuides(
+                                currentPos,
+                                currentAlignmentGuides,
+                                snapDistance = 15f / transformManager.currentScale
+                            )
+
+                            // Apply snap adjustment
+                            val snapDx = snappedPos.x - currentPos.x
+                            val snapDy = snappedPos.y - currentPos.y
+                            if (snapDx != 0f || snapDy != 0f) {
+                                objectManager.moveSelected(snapDx, snapDy)
+                            }
+                        }
+                    }
                 }
                 lastTouchX = x
                 lastTouchY = y
@@ -400,7 +524,9 @@ class WhiteboardView @JvmOverloads constructor(
                     objectManager.endTransform()
                     isTransforming = false
                 }
+                currentAlignmentGuides = emptyList()
                 performClick()
+                refreshCanvas()
             }
         }
     }
@@ -499,16 +625,13 @@ class WhiteboardView @JvmOverloads constructor(
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-            // Don't allow scaling if we have a selected object
-            if (hasSelectedObject) return false
-
             isScaling = true
+            // Cancel any canvas panning when starting to scale
+            isCanvasPanning = false
             return true
         }
 
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            if (hasSelectedObject) return false
-
             transformManager.setScale(
                 transformManager.currentScale * detector.scaleFactor,
                 detector.focusX,
@@ -524,36 +647,8 @@ class WhiteboardView @JvmOverloads constructor(
     }
 
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
-        override fun onScroll(
-            e1: MotionEvent?,
-            e2: MotionEvent,
-            distanceX: Float,
-            distanceY: Float
-        ): Boolean {
-            // Don't allow panning if we have a selected object
-            if (hasSelectedObject) return false
-
-            if (!isScaling) {
-                // Enable panning with two fingers or when explicitly allowed
-                if (e2.pointerCount == 2) {
-                    isPanning = true
-                    transformManager.translate(-distanceX, -distanceY)
-                    transformManager.constrainTranslation(
-                        canvasWidth.toFloat(), canvasHeight.toFloat(),
-                        width.toFloat(), height.toFloat()
-                    )
-                    invalidate()
-                    return true
-                }
-            }
-            return false
-        }
-
         override fun onDoubleTap(e: MotionEvent): Boolean {
-            // Don't allow double-tap zoom if we have a selected object
-            if (hasSelectedObject) return false
-
-            // Zoom to point on double tap
+            // Allow double-tap zoom in all modes
             val targetScale = if (transformManager.currentScale < 2f) 2f else 1f
             animateZoom(targetScale, e.x, e.y)
             return true

@@ -23,7 +23,10 @@ import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
+import com.example.whiteboardapp.manager.ExportManager
+import com.example.whiteboardapp.view.ExportDialog
 import kotlinx.coroutines.launch
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -46,6 +49,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var newButton: ImageButton
     private lateinit var saveButton: ImageButton
     private lateinit var loadButton: ImageButton
+    private lateinit var exportButton: ImageButton
+    private lateinit var alignmentButton: ImageButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,6 +101,9 @@ class MainActivity : AppCompatActivity() {
         newButton = findViewById(R.id.btnNew)
         saveButton = findViewById(R.id.btnSave)
         loadButton = findViewById(R.id.btnLoad)
+        exportButton = findViewById(R.id.btnExport)
+        alignmentButton = findViewById(R.id.btnToggleAlignment)
+        alignmentButton.isSelected = true
 
         penButton.setOnClickListener {
             selectTool(DrawingTool.Pen)
@@ -187,6 +195,20 @@ class MainActivity : AppCompatActivity() {
                     .setNegativeButton("Cancel", null)
                     .show()
             }
+        }
+
+        exportButton.setOnClickListener {
+            showExportDialog()
+        }
+
+        alignmentButton.setOnClickListener {
+            alignmentButton.isSelected = !alignmentButton.isSelected
+            whiteboardView.setAlignmentEnabled(alignmentButton.isSelected)
+            Toast.makeText(
+                this,
+                if (alignmentButton.isSelected) "Smart guides enabled" else "Smart guides disabled",
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         // Color Palette
@@ -357,5 +379,55 @@ class MainActivity : AppCompatActivity() {
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+    }
+
+    private fun showExportDialog() {
+        ExportDialog(this).show { options ->
+            val timestamp = System.currentTimeMillis()
+            val extension = when (options.format) {
+                ExportManager.ExportFormat.PNG -> "png"
+                ExportManager.ExportFormat.JPEG -> "jpg"
+                ExportManager.ExportFormat.PDF -> "pdf"
+            }
+
+            val outputFile = File(getExternalFilesDir(null), "whiteboard_$timestamp.$extension")
+
+            viewModel.exportCanvas(
+                this,
+                options,
+                outputFile,
+                whiteboardView.width * 3, // Canvas is 3x view size
+                whiteboardView.height * 3,
+            ) { result ->
+                result.onSuccess { file ->
+                    Toast.makeText(this, "Exported to: ${file.absolutePath}", Toast.LENGTH_LONG).show()
+
+                    // Share the file
+                    shareExportedFile(file)
+                }.onFailure { error ->
+                    Toast.makeText(this, "Export failed: ${error.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun shareExportedFile(file: File) {
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            this,
+            "${packageName}.fileprovider",
+            file
+        )
+
+        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = when (file.extension) {
+                "png", "jpg" -> "image/*"
+                "pdf" -> "application/pdf"
+                else -> "*/*"
+            }
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
+        startActivity(android.content.Intent.createChooser(shareIntent, "Share whiteboard"))
     }
 }

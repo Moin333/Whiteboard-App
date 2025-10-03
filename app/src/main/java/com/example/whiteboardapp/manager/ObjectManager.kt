@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.PointF
+import android.graphics.RectF
 import com.example.whiteboardapp.model.DrawingObject
 import com.example.whiteboardapp.model.HandleType
 import com.example.whiteboardapp.model.TransformHandleManager
@@ -241,6 +242,19 @@ class ObjectManager {
                 transformHandleManager.updateHandles(updatedObject.bounds, updatedObject.rotation)
             }
         }
+    }
+
+    fun getObjectsInBounds(visibleBounds: RectF): List<DrawingObject> {
+        // Only return objects that intersect with visible bounds for better performance
+        return objects.filter { obj ->
+            RectF.intersects(obj.bounds, visibleBounds)
+        }
+    }
+
+    // Add method to draw only visible objects
+    fun drawVisibleObjects(canvas: Canvas, visibleBounds: RectF) {
+        val visibleObjects = getObjectsInBounds(visibleBounds)
+        visibleObjects.forEach { it.draw(canvas) }
     }
 
     fun getObjectCount(): Int = objects.size

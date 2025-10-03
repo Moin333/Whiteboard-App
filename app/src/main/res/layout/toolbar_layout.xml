@@ -13,6 +13,15 @@
         android:padding="8dp">
 
         <ImageButton
+            android:id="@+id/btnExport"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_export"
+            android:contentDescription="@string/export"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#424242" />
+
+        <ImageButton
             android:id="@+id/btnUndo"
             android:layout_width="48dp"
             android:layout_height="48dp"
@@ -170,6 +179,15 @@
             android:paddingHorizontal="8dp"
             android:background="@android:drawable/btn_dropdown"
             android:backgroundTint="#E0E0E0" />
+
+        <ImageButton
+            android:id="@+id/btnToggleAlignment"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_alignment"
+            android:contentDescription="@string/toggle_alignment"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#424242" />
 
     </LinearLayout>
 </HorizontalScrollView>
