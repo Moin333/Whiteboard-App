@@ -19,7 +19,6 @@ gradle.properties
 *.keystore
 
 # Realm-specific database files
-*.realm
 *.realm.lock
 *.realm.management
 *.realm.note
