@@ -6,10 +6,14 @@ import android.graphics.RectF
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 
+/**
+ * Manages the transformation state (pan, zoom) of the entire canvas.
+ * It encapsulates an Android [Matrix] and provides methods to manipulate it.
+ */
 class CanvasTransformManager {
 
     private val transformMatrix = Matrix()
-    private val inverseMatrix = Matrix()
+    private val inverseMatrix = Matrix() // Cached for performance.
 
     var currentScale = 1f
         private set
@@ -18,12 +22,20 @@ class CanvasTransformManager {
     var currentTranslateY = 0f
         private set
 
+    // Define zoom limits.
     private val minScale = 0.25f
     private val maxScale = 5f
 
     private val _transformChanged = MutableLiveData<Matrix>()
     val transformChanged: LiveData<Matrix> = _transformChanged
 
+    /**
+     * Scales the canvas matrix around a specific focal point.
+     *
+     * @param scale The new absolute scale value.
+     * @param focusX The x-coordinate of the zoom focus point (e.g., center of pinch gesture).
+     * @param focusY The y-coordinate of the zoom focus point.
+     */
     fun setScale(scale: Float, focusX: Float, focusY: Float) {
         val newScale = scale.coerceIn(minScale, maxScale)
         val scaleFactor = newScale / currentScale
@@ -35,6 +47,12 @@ class CanvasTransformManager {
         _transformChanged.value = Matrix(transformMatrix)
     }
 
+    /**
+     * Translates (pans) the canvas by a given delta.
+     *
+     * @param dx The distance to move along the x-axis.
+     * @param dy The distance to move along the y-axis.
+     */
     fun translate(dx: Float, dy: Float) {
         transformMatrix.postTranslate(dx, dy)
         currentTranslateX += dx
@@ -44,6 +62,14 @@ class CanvasTransformManager {
         _transformChanged.value = Matrix(transformMatrix)
     }
 
+    /**
+     * Converts a point from screen coordinates to canvas coordinates.
+     * This is essential for correctly placing objects when the canvas is zoomed or panned.
+     *
+     * @param x The screen x-coordinate.
+     * @param y The screen y-coordinate.
+     * @return The corresponding [PointF] in the canvas's coordinate space.
+     */
     fun getTransformedPoint(x: Float, y: Float): PointF {
         val points = floatArrayOf(x, y)
         inverseMatrix.mapPoints(points)
@@ -56,6 +82,7 @@ class CanvasTransformManager {
         return transformedRect
     }
 
+    // Resets the canvas to its initial 100% zoom and centered position.
     fun resetTransform() {
         transformMatrix.reset()
         inverseMatrix.reset()
@@ -98,10 +125,12 @@ class CanvasTransformManager {
         _transformChanged.value = Matrix(transformMatrix)
     }
 
+    // Recalculates the inverse matrix whenever the main transform matrix changes.
     private fun updateInverseMatrix() {
         transformMatrix.invert(inverseMatrix)
     }
 
+    // Calculates the visible portion of the canvas in canvas coordinates.
     fun getVisibleBounds(viewWidth: Float, viewHeight: Float): RectF {
         val corners = floatArrayOf(
             0f, 0f,
@@ -123,7 +152,7 @@ class CanvasTransformManager {
     fun getMatrix(): Matrix = Matrix(transformMatrix)
     fun getInverseMatrix(): Matrix = Matrix(inverseMatrix)
 
-    // Limit panning to prevent canvas from going too far off-screen
+    // Prevents the user from panning the canvas infinitely off-screen.
     fun constrainTranslation(canvasWidth: Float, canvasHeight: Float, viewWidth: Float, viewHeight: Float) {
         val scaledCanvasWidth = canvasWidth * currentScale
         val scaledCanvasHeight = canvasHeight * currentScale

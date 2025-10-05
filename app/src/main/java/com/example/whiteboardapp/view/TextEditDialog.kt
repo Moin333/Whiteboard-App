@@ -11,6 +11,10 @@ import androidx.appcompat.app.AlertDialog
 import com.example.whiteboardapp.R
 import com.example.whiteboardapp.model.TextObject
 
+/**
+ * A class that builds and displays the dialog for adding or editing a [TextObject].
+ * @param onConfirm A callback invoked with the new or updated [TextObject].
+ */
 class TextEditDialog(
     private val context: Context,
     private val textObject: TextObject?, // Null if creating new text
@@ -66,7 +70,7 @@ class TextEditDialog(
         sizeSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
                 val size = progress + 12
-                textSizeLabel.text = "Size: ${size}sp"
+                textSizeLabel.text = context.getString(R.string.text_size_label, size)
                 editText.textSize = size.toFloat()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar) {}

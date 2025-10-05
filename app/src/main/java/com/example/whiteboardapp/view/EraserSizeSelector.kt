@@ -10,6 +10,10 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 
+/**
+ * A custom view that displays a set of circles for selecting the eraser size.
+ * @property onSizeSelected A callback invoked when a size is chosen.
+ */
 class EraserSizeSelector @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
@@ -39,7 +43,7 @@ class EraserSizeSelector @JvmOverloads constructor(
             addView(button)
         }
         // Select the first one by default
-        post { (getChildAt(1) as? View)?.let { updateSelection(it) } }
+        post { getChildAt(1)?.let { updateSelection(it) } }
     }
 
     private fun updateSelection(view: View) {

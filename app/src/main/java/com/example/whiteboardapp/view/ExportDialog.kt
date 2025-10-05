@@ -7,6 +7,10 @@ import androidx.appcompat.app.AlertDialog
 import com.example.whiteboardapp.R
 import com.example.whiteboardapp.manager.ExportManager
 
+/**
+ * A class that builds and displays the "Export Options" dialog.
+ * @param onExportConfirmed A callback invoked with the chosen [ExportManager.ExportOptions].
+ */
 class ExportDialog(private val context: Context) {
 
     fun show(onExportConfirmed: (ExportManager.ExportOptions) -> Unit) {
@@ -20,7 +24,7 @@ class ExportDialog(private val context: Context) {
         val watermarkCheckBox = dialogView.findViewById<CheckBox>(R.id.checkBoxWatermark)
 
         // Setup format spinner
-        val formats = ExportManager.ExportFormat.values().map { it.name }
+        val formats = ExportManager.ExportFormat.entries.map { it.name }
         formatSpinner.adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, formats)
 
         // Setup quality seekbar
@@ -28,7 +32,7 @@ class ExportDialog(private val context: Context) {
         qualitySeekBar.progress = 95
         qualitySeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                qualityLabel.text = "Quality: $progress%"
+                qualityLabel.text = context.getString(R.string.quality_label, progress)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -45,7 +49,7 @@ class ExportDialog(private val context: Context) {
             .setView(dialogView)
             .setPositiveButton("Export") { _, _ ->
                 val options = ExportManager.ExportOptions(
-                    format = ExportManager.ExportFormat.values()[formatSpinner.selectedItemPosition],
+                    format = ExportManager.ExportFormat.entries[formatSpinner.selectedItemPosition],
                     quality = qualitySeekBar.progress,
                     scale = scaleValues[scaleSpinner.selectedItemPosition],
                     cropToContent = cropCheckBox.isChecked,

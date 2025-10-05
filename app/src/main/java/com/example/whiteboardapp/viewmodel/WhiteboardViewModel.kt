@@ -19,6 +19,10 @@ import kotlinx.coroutines.launch
 import org.mongodb.kbson.ObjectId
 import java.io.File
 
+/**
+ * The ViewModel for the Whiteboard. It holds the UI state and handles all user interactions
+ * by delegating logic to the appropriate managers or repository.
+ */
 class WhiteboardViewModel : ViewModel() {
     private val repository = WhiteboardRepository()
     val objectManager = ObjectManager()
@@ -28,32 +32,26 @@ class WhiteboardViewModel : ViewModel() {
     // LiveData for Undo/Redo states from CommandManager
     val canUndo: LiveData<Boolean> = commandManager.canUndo
     val canRedo: LiveData<Boolean> = commandManager.canRedo
-    val historyChanged: LiveData<Pair<Int, Int>> = commandManager.historyChanged
 
     // State for tracking object transformations
     private var preTransformState: DrawingObject? = null
     private var preMovePosition: PointF? = null
 
-    // LiveData for the UI
+    // --- UI State LiveData ---
     private val _currentSessionId = MutableLiveData<ObjectId?>(null)
     val currentSessionId: LiveData<ObjectId?> = _currentSessionId
     private val _drawingObjects = MutableLiveData<List<DrawingObject>>(emptyList())
     val drawingObjects: LiveData<List<DrawingObject>> = _drawingObjects
     private val _currentTool = MutableLiveData<DrawingTool>(DrawingTool.Pen)
     val currentTool: LiveData<DrawingTool> = _currentTool
-
     private val _strokeWidth = MutableLiveData(5f)
     val strokeWidth: LiveData<Float> = _strokeWidth
-
     private val _strokeColor = MutableLiveData(Color.BLACK)
     val strokeColor: LiveData<Int> = _strokeColor
-
     private val _isFillEnabled = MutableLiveData(false)
     val isFillEnabled: LiveData<Boolean> = _isFillEnabled
-
     private val _eraserRadius = MutableLiveData(20f)
     val eraserRadius: LiveData<Float> = _eraserRadius
-
     private val _isExporting = MutableLiveData(false)
     val isExporting: LiveData<Boolean> = _isExporting
 
@@ -61,9 +59,14 @@ class WhiteboardViewModel : ViewModel() {
     suspend fun getSessions(): List<WhiteboardSession> {
         return repository.getAllSessions()
     }
+
+    /**
+     * Sets the active drawing tool.
+     * @param tool The [DrawingTool] to activate.
+     */
     fun selectTool(tool: DrawingTool) {
         _currentTool.value = tool
-        // Clear selection when switching tools (except for Select tool)
+        // Deselect any object when switching away from the select tool.
         if (tool !is DrawingTool.Select) {
             objectManager.clearSelection()
         }
@@ -81,6 +84,10 @@ class WhiteboardViewModel : ViewModel() {
         _isFillEnabled.value = isEnabled
     }
 
+    /**
+     * Adds a new drawing object to the canvas via the CommandManager.
+     * @param obj The [DrawingObject] to add.
+     */
     fun addObject(obj: DrawingObject) {
         val command = DrawingCommand.AddObjectCommand(obj)
         commandManager.executeCommand(command, objectManager)
@@ -90,24 +97,6 @@ class WhiteboardViewModel : ViewModel() {
     fun updateObject(oldState: DrawingObject, newState: DrawingObject) {
         val command = DrawingCommand.ModifyObjectCommand(oldState, newState)
         commandManager.executeCommand(command, objectManager)
-        updateObjectsLiveData()
-    }
-
-    fun selectObjectAt(x: Float, y: Float): DrawingObject? {
-        val selectedObject = objectManager.selectObjectAt(x, y)
-        // Trigger a view refresh to show selection
-        updateObjectsLiveData()
-        return selectedObject
-    }
-
-    fun moveSelectedObject(dx: Float, dy: Float) {
-        objectManager.moveSelected(dx, dy)
-        updateObjectsLiveData()
-    }
-
-    fun clearCanvas() {
-        objectManager.clear()
-        commandManager.clear()
         updateObjectsLiveData()
     }
 
@@ -129,36 +118,50 @@ class WhiteboardViewModel : ViewModel() {
         }
     }
 
-    fun saveCurrentSession(name: String) {
+    fun saveCurrentSession(name: String, onResult: (Result<ObjectId>) -> Unit) {
         viewModelScope.launch {
-            val savedId = repository.saveOrUpdateSession(
-                _currentSessionId.value,
-                name,
-                objectManager.getObjects()
-            )
-            _currentSessionId.value = savedId
+            try {
+                val savedId = repository.saveOrUpdateSession(
+                    _currentSessionId.value,
+                    name,
+                    objectManager.getObjects()
+                )
+                _currentSessionId.value = savedId
+                onResult(Result.success(savedId))
+            } catch (e: Exception) {
+                onResult(Result.failure(e))
+            }
         }
     }
 
-    fun saveAsNewSession(name: String) {
+    fun saveAsNewSession(name: String, onResult: (Result<ObjectId>) -> Unit) {
         viewModelScope.launch {
-            // We force sessionId to be null to create a new entry
-            val savedId = repository.saveOrUpdateSession(
-                null,
-                name,
-                objectManager.getObjects()
-            )
-            _currentSessionId.value = savedId // The app is now tracking the new copy
+            try {
+                val savedId = repository.saveOrUpdateSession(
+                    null,
+                    name,
+                    objectManager.getObjects()
+                )
+                _currentSessionId.value = savedId
+                onResult(Result.success(savedId))
+            } catch (e: Exception) {
+                onResult(Result.failure(e))
+            }
         }
     }
 
-    fun loadSession(sessionId: ObjectId) {
+    fun loadSession(sessionId: ObjectId, onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
-            val objects = repository.loadSession(sessionId)
-            objectManager.clear()
-            objects.forEach { objectManager.addObject(it) }
-            _currentSessionId.value = sessionId
-            updateObjectsLiveData() // Refresh the UI
+            try {
+                val objects = repository.loadSession(sessionId)
+                objectManager.clear()
+                objects.forEach { objectManager.addObject(it) }
+                _currentSessionId.value = sessionId
+                updateObjectsLiveData()
+                onResult(Result.success(Unit))
+            } catch (e: Exception) {
+                onResult(Result.failure(e))
+            }
         }
     }
 
@@ -208,6 +211,16 @@ class WhiteboardViewModel : ViewModel() {
         updateObjectsLiveData()
     }
 
+    /**
+     * Exports the current canvas content to a file.
+     *
+     * @param context The application context.
+     * @param options The export configuration.
+     * @param outputFile The file to write to.
+     * @param canvasWidth The total width of the canvas content.
+     * @param canvasHeight The total height of the canvas content.
+     * @param onComplete A callback to report the result.
+     */
     fun exportCanvas(
         context: Context,
         options: ExportManager.ExportOptions,
@@ -234,14 +247,13 @@ class WhiteboardViewModel : ViewModel() {
         }
     }
 
-    // --- Private Helper ---
+    /** Pushes the current list of objects from the ObjectManager to the LiveData. */
     private fun updateObjectsLiveData() {
         _drawingObjects.value = objectManager.getObjects()
     }
 
     override fun onCleared() {
         super.onCleared()
-        // Clean up any resources if needed
         objectManager.clear()
     }
 }

@@ -17,27 +17,35 @@ import com.example.whiteboardapp.manager.CanvasTransformManager
 import com.example.whiteboardapp.model.DrawingObject
 import com.example.whiteboardapp.model.DrawingTool
 import com.example.whiteboardapp.model.TextObject
+import com.example.whiteboardapp.utils.PerformanceOptimizer
 import com.example.whiteboardapp.viewmodel.WhiteboardViewModel
 import kotlin.math.abs
 import kotlin.math.min
+import androidx.core.graphics.toColorInt
+import androidx.core.graphics.withClip
+import androidx.core.graphics.withSave
 
+/**
+ * The main custom view for the whiteboard. It handles rendering all objects,
+ * user touch input, panning, zooming, and tool interactions.
+ */
 class WhiteboardView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-    defStyleAttr: Int = 0
+    defStyleAttr: Int = 0,
 ) : View(context, attrs, defStyleAttr) {
 
     private var viewModel: WhiteboardViewModel? = null
     private var shapeDrawingHandler: ShapeDrawingHandler = ShapeDrawingHandler(this)
     private val transformManager = CanvasTransformManager()
 
-    // Gesture detectors
+    // Gesture detectors for handling complex touch events like pinch-to-zoom and double-tap.
     private val scaleGestureDetector: ScaleGestureDetector
     private val gestureDetector: GestureDetector
     private var velocityTracker: VelocityTracker? = null
     private val flingAnimator = ValueAnimator()
 
-    // --- State ---
+    // State variables
     private var currentTool: DrawingTool = DrawingTool.Pen
     private var allObjects = listOf<DrawingObject>()
     private var lastTouchX = 0f
@@ -57,6 +65,13 @@ class WhiteboardView @JvmOverloads constructor(
     private var canvasWidth = 0
     private var canvasHeight = 0
 
+    // Track if this is a simple tap vs drag/pan
+    private var isTap = true
+    private val tapSlop = 10f // Movement threshold to distinguish tap from drag
+
+    // Boolean for centering the canvas view
+    private var isCanvasInitialized = false
+
     // --- Paint Objects ---
     private val drawPaint = Paint().apply {
         isAntiAlias = true
@@ -66,12 +81,10 @@ class WhiteboardView @JvmOverloads constructor(
     }
 
     private val canvasPaint = Paint(Paint.DITHER_FLAG)
-    private val backgroundPaint = Paint().apply {
-        color = Color.WHITE
-    }
+
 
     private val gridPaint = Paint().apply {
-        color = Color.parseColor("#E0E0E0")
+        color = "#E0E0E0".toColorInt()
         strokeWidth = 1f
         style = Paint.Style.STROKE
     }
@@ -98,8 +111,7 @@ class WhiteboardView @JvmOverloads constructor(
     init {
         scaleGestureDetector = ScaleGestureDetector(context, ScaleListener())
         gestureDetector = GestureDetector(context, GestureListener())
-
-        // Enable hardware acceleration for better performance
+        // Hardware acceleration is crucial for smooth canvas operations.
         setLayerType(LAYER_TYPE_HARDWARE, null)
     }
 
@@ -114,6 +126,7 @@ class WhiteboardView @JvmOverloads constructor(
 
     private fun observeViewModel() {
         viewModel?.apply {
+            // Observe changes in the ViewModel and update the view's state.
             currentTool.observeForever { tool ->
                 this@WhiteboardView.currentTool = tool
                 isTransforming = false
@@ -129,32 +142,38 @@ class WhiteboardView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Sets up the off-screen bitmap and canvas when the view's size is determined.
+     * The canvas is created larger than the view to allow for panning.
+     */
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-
         if (::canvasBitmap.isInitialized) {
             canvasBitmap.recycle()
         }
-
-        // Create canvas 3x the size of the view
+        /// Create a canvas that is larger than the view.
         canvasWidth = (w * canvasMultiplier).toInt()
         canvasHeight = (h * canvasMultiplier).toInt()
-
         canvasBitmap = createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
         drawCanvas = Canvas(canvasBitmap)
         drawCanvas.drawColor(Color.WHITE)
 
-        // Center the canvas initially
-        if (!::canvasBitmap.isInitialized) {
+        if (!isCanvasInitialized) {
             transformManager.centerCanvas(
                 w.toFloat(), h.toFloat(),
                 canvasWidth.toFloat(), canvasHeight.toFloat()
             )
+            // Flip the switch so this code never runs again
+            isCanvasInitialized = true
         }
 
         refreshCanvas()
     }
 
+    /**
+     * Redraws all content onto the off-screen [canvasBitmap].
+     * This is an optimization to avoid redrawing every object on every frame.
+     */
     private fun refreshCanvas() {
         if (::drawCanvas.isInitialized) {
             // Get visible bounds for optimization
@@ -163,19 +182,19 @@ class WhiteboardView @JvmOverloads constructor(
             // Clear only the visible area if zoomed in
             if (transformManager.currentScale > 1.5f) {
                 // Clear visible region
-                drawCanvas.save()
-                drawCanvas.clipRect(visibleBounds)
-                drawCanvas.drawColor(Color.WHITE, PorterDuff.Mode.SRC)
-                drawCanvas.restore()
+                drawCanvas.withClip(visibleBounds) {
+                    drawColor(Color.WHITE, PorterDuff.Mode.SRC)
 
-                // Draw grid only in visible area
-                drawGridInBounds(drawCanvas, visibleBounds)
+                    // Draw grid only in visible area
+                    drawGridInBounds(this, visibleBounds)
 
-                // Draw only visible objects
-                val visibleObjects = allObjects.filter { obj ->
-                    RectF.intersects(obj.bounds, visibleBounds)
+                    // Draw only visible objects
+                    val visibleObjects = PerformanceOptimizer.getVisibleObjects(
+                        allObjects,
+                        visibleBounds
+                    )
+                    visibleObjects.forEach { it.draw(this) }
                 }
-                visibleObjects.forEach { it.draw(drawCanvas) }
             } else {
                 // Full canvas redraw when zoomed out
                 drawCanvas.drawColor(Color.WHITE, PorterDuff.Mode.SRC)
@@ -185,12 +204,12 @@ class WhiteboardView @JvmOverloads constructor(
 
             // Draw selection if present
             viewModel?.let {
-                drawCanvas.save()
-                it.objectManager.drawSelection(drawCanvas)
-                drawCanvas.restore()
+                drawCanvas.withSave {
+                    it.objectManager.drawSelection(this)
+                }
             }
 
-            invalidate()
+            invalidate() // Request a redraw of the view itself.
         }
     }
 
@@ -224,33 +243,35 @@ class WhiteboardView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * The main drawing method. It draws the pre-rendered [canvasBitmap] onto the screen,
+     * applying the current zoom and pan transformation.
+     */
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-
-        // Clear the view
-        canvas.drawColor(Color.parseColor("#F5F5F5"))
+        canvas.drawColor("#F5F5F5".toColorInt()) // Background color of the view
 
         // Apply transformation
-        canvas.save()
-        canvas.concat(transformManager.getMatrix())
+        canvas.withSave {
+            concat(transformManager.getMatrix())
 
-        // Draw the bitmap canvas
-        canvas.drawBitmap(canvasBitmap, 0f, 0f, canvasPaint)
+            // Draw the bitmap canvas
+            drawBitmap(canvasBitmap, 0f, 0f, canvasPaint)
 
-        // Draw current path being drawn (for real-time feedback)
-        if (currentTool is DrawingTool.Pen && !currentPath.isEmpty) {
-            canvas.drawPath(currentPath, drawPaint)
-        } else if (currentTool is DrawingTool.Shape) {
-            shapeDrawingHandler.drawPreview(canvas)
+            // Draw current path being drawn (for real-time feedback)
+            if (currentTool is DrawingTool.Pen && !currentPath.isEmpty) {
+                drawPath(currentPath, drawPaint)
+            } else if (currentTool is DrawingTool.Shape) {
+                shapeDrawingHandler.drawPreview(this)
+            }
+
+            // Draw alignment guides when moving objects
+            if (currentAlignmentGuides.isNotEmpty()) {
+                val visibleBounds =
+                    transformManager.getVisibleBounds(width.toFloat(), height.toFloat())
+                alignmentHelper.drawGuides(this, currentAlignmentGuides, visibleBounds)
+            }
         }
-
-        // Draw alignment guides when moving objects
-        if (currentAlignmentGuides.isNotEmpty()) {
-            val visibleBounds = transformManager.getVisibleBounds(width.toFloat(), height.toFloat())
-            alignmentHelper.drawGuides(canvas, currentAlignmentGuides, visibleBounds)
-        }
-
-        canvas.restore()
 
         // Draw UI overlays (not transformed)
         drawOverlays(canvas)
@@ -282,6 +303,9 @@ class WhiteboardView @JvmOverloads constructor(
         canvas.drawRect(transformedRect, boundsPaint)
     }
 
+    /**
+     * Handles all touch events, delegating to gesture detectors and tool-specific handlers.
+     */
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
 
@@ -305,6 +329,7 @@ class WhiteboardView @JvmOverloads constructor(
                 lastTouchY = event.y
                 panStartX = event.x
                 panStartY = event.y
+                isTap = true
 
                 // For select mode, determine if we're selecting an object or panning
                 if (currentTool is DrawingTool.Select && event.pointerCount == 1) {
@@ -332,6 +357,13 @@ class WhiteboardView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
+                if (isTap) {
+                    val dx = abs(event.x - panStartX)
+                    val dy = abs(event.y - panStartY)
+                    if (dx > tapSlop || dy > tapSlop) {
+                        isTap = false
+                    }
+                }
                 if (currentTool is DrawingTool.Select && event.pointerCount == 1) {
                     if (isCanvasPanning) {
                         // Pan the canvas with one finger in select mode
@@ -378,6 +410,10 @@ class WhiteboardView @JvmOverloads constructor(
                     }
                 } else if (!isScaling && event.pointerCount == 1) {
                     handleToolAction(event, MotionEvent.ACTION_UP)
+                }
+
+                if (isTap) {
+                    performClick()
                 }
 
                 activePointerId = MotionEvent.INVALID_POINTER_ID
@@ -525,7 +561,6 @@ class WhiteboardView @JvmOverloads constructor(
                     isTransforming = false
                 }
                 currentAlignmentGuides = emptyList()
-                performClick()
                 refreshCanvas()
             }
         }

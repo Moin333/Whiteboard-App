@@ -3,32 +3,39 @@ package com.example.whiteboardapp.manager
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import com.example.whiteboardapp.model.DrawingCommand
-import com.example.whiteboardapp.model.DrawingObject
-import com.example.whiteboardapp.model.TextObject
 
+/**
+ * Manages the undo and redo history of the whiteboard.
+ * It holds two stacks: one for undoable commands and one for redoable commands.
+ */
 class CommandManager(private val maxHistorySize: Int = 50) {
 
     private val undoStack = mutableListOf<DrawingCommand>()
     private val redoStack = mutableListOf<DrawingCommand>()
 
+    // LiveData to enable/disable UI buttons.
     private val _canUndo = MutableLiveData(false)
     val canUndo: LiveData<Boolean> = _canUndo
-
     private val _canRedo = MutableLiveData(false)
     val canRedo: LiveData<Boolean> = _canRedo
-
     private val _historyChanged = MutableLiveData<Pair<Int, Int>>()
     val historyChanged: LiveData<Pair<Int, Int>> = _historyChanged
 
+    /**
+     * Executes a command, adds it to the undo stack, and clears the redo stack.
+     * Implements command coalescing to merge similar, consecutive actions.
+     *
+     * @param command The command to execute.
+     * @param objectManager The [ObjectManager] on which to execute the command.
+     */
     fun executeCommand(command: DrawingCommand, objectManager: ObjectManager) {
-        // Coalescing logic: Check if the new command can be merged with the last one
+        // Coalescing logic: If the new command can be merged with the last one...
         if (undoStack.isNotEmpty()) {
             val lastCommand = undoStack.last()
             if (lastCommand.canCoalesce(command)) {
-                // If so, replace the last command with the merged version
+                // ...replace the last command with the merged version.
                 undoStack[undoStack.lastIndex] = coalesceCommands(lastCommand, command)
-                // Execute only the new part of the command
-                command.execute(objectManager)
+                command.execute(objectManager) // Execute the action.
                 updateState()
                 return
             }
@@ -37,11 +44,12 @@ class CommandManager(private val maxHistorySize: Int = 50) {
         command.execute(objectManager)
         undoStack.add(command)
 
+        // Maintain max history size.
         if (undoStack.size > maxHistorySize) {
             undoStack.removeAt(0)
         }
 
-        redoStack.clear()
+        redoStack.clear() // Any new action clears the redo history.
         updateState()
     }
 
@@ -69,10 +77,11 @@ class CommandManager(private val maxHistorySize: Int = 50) {
         updateState()
     }
 
+    // Merges two coalesce-able commands into a single command.
     private fun coalesceCommands(existing: DrawingCommand, new: DrawingCommand): DrawingCommand {
         return when {
             existing is DrawingCommand.MoveObjectCommand && new is DrawingCommand.MoveObjectCommand -> {
-                // Merge two move commands into one that covers the total distance
+                // A move from A->B followed by B->C becomes a single move from A->C.
                 DrawingCommand.MoveObjectCommand(
                     objectId = existing.objectId,
                     newX = new.newX, // Final position is from the new command
@@ -81,8 +90,7 @@ class CommandManager(private val maxHistorySize: Int = 50) {
                     oldY = existing.oldY
                 )
             }
-            // Add other coalescing rules here if needed
-            else -> new // Default to the new command if no rule matches
+            else -> new
         }
     }
 

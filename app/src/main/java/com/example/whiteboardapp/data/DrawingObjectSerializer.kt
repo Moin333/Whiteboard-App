@@ -7,8 +7,21 @@ import com.example.whiteboardapp.model.ShapeType
 import com.example.whiteboardapp.model.TextObject
 import org.json.JSONObject
 
+/**
+ * A singleton object responsible for serializing [DrawingObject] models into JSON strings
+ * for database storage and deserializing them back into their original object form.
+ * This acts as a bridge between the complex in-memory objects and the simple string format
+ * required by [DrawingObjectRealm].
+ */
 object DrawingObjectSerializer {
 
+    /**
+     * Serializes any given [DrawingObject] into a JSON string.
+     * It delegates to a specific serialization function based on the object's type.
+     *
+     * @param obj The [DrawingObject] to serialize.
+     * @return A JSON formatted string representing the object.
+     */
     fun serialize(obj: DrawingObject): String {
         return when (obj) {
             is DrawingObject.PathObject -> serializePath(obj)
@@ -17,6 +30,31 @@ object DrawingObjectSerializer {
         }
     }
 
+
+    /**
+     * Deserializes a [DrawingObjectRealm] database entity into a [DrawingObject] model.
+     * It reads the object's type and JSON data to reconstruct the appropriate model.
+     *
+     * @param realmObj The database object to deserialize.
+     * @return A fully formed [DrawingObject], or null if deserialization fails.
+     */
+    fun deserialize(realmObj: DrawingObjectRealm): DrawingObject? {
+        return try {
+            val json = JSONObject(realmObj.data)
+            val type = realmObj.type
+            when (type) {
+                "path" -> deserializePath(json)
+                "shape" -> deserializeShape(json)
+                "text" -> deserializeText(json)
+                else -> null
+            }
+        } catch (e: Exception) {
+            // Log error
+            null
+        }
+    }
+
+    // region Private Serialization Methods
     private fun serializePath(path: DrawingObject.PathObject): String {
         return JSONObject().apply {
             put("id", path.id)
@@ -55,23 +93,9 @@ object DrawingObjectSerializer {
             put("rotation", text.rotation.toDouble())
         }.toString()
     }
+    // endregion
 
-    fun deserialize(realmObj: DrawingObjectRealm): DrawingObject? {
-        return try {
-            val json = JSONObject(realmObj.data)
-            val type = realmObj.type
-            when (type) {
-                "path" -> deserializePath(json)
-                "shape" -> deserializeShape(json)
-                "text" -> deserializeText(json)
-                else -> null
-            }
-        } catch (e: Exception) {
-            // Log error
-            null
-        }
-    }
-
+    // region Private Deserialization Methods
     private fun deserializePath(json: JSONObject): DrawingObject.PathObject {
         val paint = Paint().apply {
             style = Paint.Style.STROKE
@@ -128,4 +152,5 @@ object DrawingObjectSerializer {
             rotation = json.optDouble("rotation", 0.0).toFloat()
         }
     }
+    // endregion
 }

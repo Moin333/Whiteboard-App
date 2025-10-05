@@ -4,8 +4,14 @@ import android.graphics.*
 import com.example.whiteboardapp.model.DrawingObject
 import kotlin.math.abs
 
+/**
+ * A helper class that provides "smart guides" for aligning drawing objects.
+ * It detects when a moving object's edges or center are aligned with other objects
+ * on the canvas and provides visual feedback (alignment lines).
+ */
 class AlignmentHelper {
 
+    // Paint used for drawing the dashed red alignment guide lines.
     private val guidePaint = Paint().apply {
         color = Color.RED
         strokeWidth = 1f
@@ -13,6 +19,13 @@ class AlignmentHelper {
         alpha = 180
     }
 
+    /**
+     * Represents a single alignment guide (either horizontal or vertical).
+     *
+     * @property position The coordinate of the guide line (y for horizontal, x for vertical).
+     * @property orientation Whether the guide is HORIZONTAL or VERTICAL.
+     * @property sourceObject The object that this guide is snapping to.
+     */
     data class AlignmentGuide(
         val position: Float,
         val orientation: Orientation,
@@ -21,6 +34,16 @@ class AlignmentHelper {
         enum class Orientation { HORIZONTAL, VERTICAL }
     }
 
+    /**
+     * Finds potential alignment guides for a moving object relative to a list of static objects.
+     * It checks for alignment of top, center, and bottom edges (horizontal) and
+     * left, center, and right edges (vertical).
+     *
+     * @param movingObject The object currently being dragged by the user.
+     * @param allObjects The list of all other objects on the canvas to check against.
+     * @param threshold The maximum distance in pixels to consider two edges "aligned".
+     * @return A list of [AlignmentGuide]s that the moving object can snap to.
+     */
     fun findAlignmentGuides(
         movingObject: DrawingObject,
         allObjects: List<DrawingObject>,
@@ -32,7 +55,7 @@ class AlignmentHelper {
         allObjects.filter { it.id != movingObject.id }.forEach { obj ->
             val objBounds = obj.bounds
 
-            // Check horizontal alignment
+            // Check horizontal alignment (top, middle, bottom)
             listOf(
                 movingBounds.top to objBounds.top,
                 movingBounds.centerY() to objBounds.centerY(),
@@ -49,7 +72,7 @@ class AlignmentHelper {
                 }
             }
 
-            // Check vertical alignment
+            // Check vertical alignment (left, center, right)
             listOf(
                 movingBounds.left to objBounds.left,
                 movingBounds.centerX() to objBounds.centerX(),
@@ -66,10 +89,17 @@ class AlignmentHelper {
                 }
             }
         }
-
         return guides
     }
 
+    /**
+     * Adjusts a point's coordinates to snap to the nearest guide if it's within a given distance.
+     *
+     * @param position The current position of the object being moved.
+     * @param guides The list of active alignment guides.
+     * @param snapDistance The maximum distance to a guide for snapping to occur.
+     * @return A new [PointF] with the snapped coordinates.
+     */
     fun snapToGuides(
         position: PointF,
         guides: List<AlignmentGuide>,
@@ -92,10 +122,16 @@ class AlignmentHelper {
                 }
             }
         }
-
         return PointF(snappedX, snappedY)
     }
 
+    /**
+     * Draws the visual representation of the alignment guides on the canvas.
+     *
+     * @param canvas The canvas to draw on.
+     * @param guides The list of guides to draw.
+     * @param viewBounds The visible area of the canvas, to draw lines from edge to edge.
+     */
     fun drawGuides(canvas: Canvas, guides: List<AlignmentGuide>, viewBounds: RectF) {
         guides.forEach { guide ->
             when (guide.orientation) {

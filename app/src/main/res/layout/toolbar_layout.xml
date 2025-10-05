@@ -18,7 +18,7 @@
             android:layout_height="48dp"
             android:src="@drawable/ic_export"
             android:contentDescription="@string/export"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
 
         <ImageButton
@@ -27,7 +27,7 @@
             android:layout_height="48dp"
             android:src="@drawable/ic_undo"
             android:contentDescription="@string/undo"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
 
         <ImageButton
@@ -36,7 +36,7 @@
             android:layout_height="48dp"
             android:src="@drawable/ic_redo"
             android:contentDescription="@string/redo"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
 
         <ImageButton
@@ -63,31 +63,34 @@
             android:layout_height="48dp"
             android:src="@drawable/ic_select"
             android:contentDescription="@string/select_tool"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
+
         <ImageButton
             android:id="@+id/btnLine"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:src="@drawable/ic_line"
             android:contentDescription="@string/line_tool"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
+
         <ImageButton
             android:id="@+id/btnRectangle"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:src="@drawable/ic_rectangle"
             android:contentDescription="@string/rectangle_tool"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
+
         <ImageButton
             android:id="@+id/btnCircle"
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:src="@drawable/ic_circle"
             android:contentDescription="@string/circle_tool"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
 
         <ImageButton
@@ -96,7 +99,7 @@
             android:layout_height="48dp"
             android:src="@drawable/ic_text"
             android:contentDescription="@string/text_tool"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
 
         <ImageButton
@@ -105,7 +108,7 @@
             android:layout_height="48dp"
             android:src="@drawable/ic_new"
             android:contentDescription="@string/new_session"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
 
         <ImageButton
@@ -114,7 +117,7 @@
             android:layout_height="48dp"
             android:src="@drawable/ic_save"
             android:contentDescription="@string/save_session"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
 
         <ImageButton
@@ -123,9 +126,8 @@
             android:layout_height="48dp"
             android:src="@drawable/ic_load"
             android:contentDescription="@string/load_session"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
-
 
         <View
             android:layout_width="1dp"
@@ -168,7 +170,7 @@
             android:textOn="@string/fill_btn"
             android:visibility="gone"
             android:drawableTop="@drawable/ic_fill"
-            android:background="?attr/selectableItemBackground" />
+            android:background="@drawable/tool_button_background" />
 
         <Spinner
             android:id="@+id/strokeWidthSpinner"
@@ -186,7 +188,7 @@
             android:layout_height="48dp"
             android:src="@drawable/ic_alignment"
             android:contentDescription="@string/toggle_alignment"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/tool_button_background"
             app:tint="#424242" />
 
     </LinearLayout>

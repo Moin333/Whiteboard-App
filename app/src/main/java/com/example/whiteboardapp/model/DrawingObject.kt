@@ -12,17 +12,36 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
+/**
+ * A sealed class representing any object that can be drawn on the whiteboard.
+ * This defines the common properties and behaviors for all drawable items.
+ */
 sealed class DrawingObject {
+    // A unique identifier for the object.
     abstract val id: String
+    // The bounding box of the object.
     abstract val bounds: RectF
+    // The rotation angle of the object in degrees.
     open var rotation: Float = 0f
 
+    // Renders the object on the given canvas.
     abstract fun draw(canvas: Canvas)
+    // Checks if a given coordinate (x, y) is inside the object's bounds.
     abstract fun contains(x: Float, y: Float): Boolean
+    // Moves the object by a given delta (dx, dy).
     abstract fun move(dx: Float, dy: Float)
-
+    // Creates a deep copy of the object.
     abstract fun clone(): DrawingObject
 
+    /**
+     * Helper function to calculate the new coordinates of a point rotated around a center.
+     * @param x The original x-coordinate of the point.
+     * @param y The original y-coordinate of the point.
+     * @param cx The center x-coordinate of rotation.
+     * @param cy The center y-coordinate of rotation.
+     * @param angle The rotation angle in degrees.
+     * @return A [PointF] with the new coordinates.
+     */
     protected fun rotatePoint(x: Float, y: Float, cx: Float, cy: Float, angle: Float): PointF {
         val rad = Math.toRadians(angle.toDouble())
         val cos = cos(rad).toFloat()
@@ -34,14 +53,17 @@ sealed class DrawingObject {
             cy + dx * sin + dy * cos
         )
     }
+
+    // Represents a freehand drawing path.
     data class PathObject(
         override val id: String = UUID.randomUUID().toString(),
         val path: Path,
         val paint: Paint
     ) : DrawingObject() {
+        // Bounds are computed once and updated on move.
         override val bounds: RectF = RectF().apply {
             path.computeBounds(this, true)
-            // Expand bounds slightly for easier selection
+            // Expand bounds slightly for easier touch selection.
             val expansion = paint.strokeWidth / 2f
             inset(-expansion, -expansion)
         }
@@ -51,6 +73,7 @@ sealed class DrawingObject {
         }
 
         override fun contains(x: Float, y: Float): Boolean {
+            // For paths, a simple bounds check is sufficient for selection.
             return bounds.contains(x, y)
         }
 
@@ -67,6 +90,7 @@ sealed class DrawingObject {
         }
     }
 
+    // Represents a geometric shape like a line, rectangle, or circle.
     data class ShapeObject(
         override val id: String = UUID.randomUUID().toString(),
         val shapeType: ShapeType,
@@ -90,6 +114,7 @@ sealed class DrawingObject {
             val centerX = bounds.centerX()
             val centerY = bounds.centerY()
 
+            // Apply rotation around the shape's center.
             canvas.withRotation(rotation, centerX, centerY) {
                 when (shapeType) {
                     ShapeType.LINE -> {
@@ -128,7 +153,6 @@ sealed class DrawingObject {
                 }
                 close()
             }
-            // Draw fill first (if enabled), then stroke
             fillPaint?.let { canvas.drawPath(path, it) }
             canvas.drawPath(path, paint)
         }
@@ -144,6 +168,8 @@ sealed class DrawingObject {
             val centerX = bounds.centerX()
             val centerY = bounds.centerY()
 
+            // To check containment in a rotated object, we un-rotate the touch point
+            // and check if it falls within the original, un-rotated bounds.
             if (rotation != 0f) {
                 val rotatedPoint = rotatePoint(x, y, centerX, centerY, -rotation)
                 return bounds.contains(rotatedPoint.x, rotatedPoint.y)

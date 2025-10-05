@@ -8,6 +8,10 @@ import androidx.core.graphics.withRotation
 import java.util.*
 import androidx.core.graphics.withSave
 
+/**
+ * A specialized [DrawingObject] for rendering and managing text.
+ * It uses a [StaticLayout] to handle multi-line text wrapping and alignment.
+ */
 data class TextObject(
     override val id: String = UUID.randomUUID().toString(),
     var text: String,
@@ -30,10 +34,11 @@ data class TextObject(
         updatePaint()
     }
 
+    // StaticLayout is used for rendering multi-line text.
     private lateinit var staticLayout: StaticLayout
+    // A flag to indicate when the layout needs to be recalculated.
     private var isLayoutDirty = true
 
-    // calculate bounds based on alignment
     override val bounds: RectF
         get() {
             if (isLayoutDirty) {
@@ -42,6 +47,7 @@ data class TextObject(
             val width = staticLayout.width.toFloat()
             val height = staticLayout.height.toFloat()
 
+            // calculate bounds based on alignment
             return when (alignment) {
                 Paint.Align.LEFT -> RectF(x, y, x + width, y + height)
                 Paint.Align.CENTER -> RectF(x - width / 2, y, x + width / 2, y + height)
@@ -49,6 +55,10 @@ data class TextObject(
             }
         }
 
+    /**
+     * Updates the internal TextPaint object with the current style properties.
+     * This marks the layout as "dirty" to force a recalculation.
+     */
     private fun updatePaint() {
         val style = when {
             isBold && isItalic -> Typeface.BOLD_ITALIC
@@ -62,6 +72,7 @@ data class TextObject(
         isLayoutDirty = true
     }
 
+    // Convenience method to update multiple properties at once.
     fun update(
         newText: String = text,
         newTextSize: Float = textSize,
@@ -79,7 +90,7 @@ data class TextObject(
         updatePaint()
     }
 
-
+    // Rebuilds the [StaticLayout] which is necessary when text or styling changes.
     private fun buildStaticLayout() {
         val alignmentLayout = when (alignment) {
             Paint.Align.LEFT -> Layout.Alignment.ALIGN_NORMAL
@@ -105,12 +116,12 @@ data class TextObject(
         val centerX = currentBounds.centerX()
         val centerY = currentBounds.centerY()
 
+        // Apply rotation before drawing the text.
         canvas.withRotation(rotation, centerX, centerY) {
             withSave {
+                // Translate the canvas to the correct drawing position before drawing the StaticLayout.
                 val drawX = when (alignment) {
-                    Paint.Align.LEFT -> currentBounds.left
-                    Paint.Align.CENTER -> currentBounds.left
-                    Paint.Align.RIGHT -> currentBounds.left
+                    Paint.Align.LEFT, Paint.Align.CENTER, Paint.Align.RIGHT -> currentBounds.left
                 }
                 translate(drawX, currentBounds.top)
                 staticLayout.draw(this)
@@ -119,6 +130,7 @@ data class TextObject(
     }
 
     override fun contains(x: Float, y: Float): Boolean {
+        // Use the same logic as ShapeObject for checking containment in a rotated object.
         val centerX = bounds.centerX()
         val centerY = bounds.centerY()
 
@@ -132,9 +144,11 @@ data class TextObject(
     override fun move(dx: Float, dy: Float) {
         x += dx
         y += dy
+        // The bounds will automatically update on the next access.
     }
 
     override fun clone(): DrawingObject {
+        // Data classes provide a convenient `copy()` method.
         return this.copy()
     }
 }

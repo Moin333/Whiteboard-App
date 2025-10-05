@@ -8,13 +8,33 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import androidx.core.graphics.createBitmap
+import androidx.core.graphics.withTranslation
+import androidx.core.graphics.withSave
+import androidx.core.graphics.withScale
 
+/**
+ * Manages the process of exporting the whiteboard canvas to various file formats.
+ * All operations are performed on a background thread using coroutines.
+ *
+ * @param context The application context.
+ */
 class ExportManager(private val context: Context) {
 
+    // Defines the available export file formats.
     enum class ExportFormat {
         PNG, JPEG, PDF
     }
 
+    /**
+     * A data class holding all configuration options for an export operation.
+     *
+     * @property format The target file format.
+     * @property quality The compression quality for JPEG/PNG (0-100).
+     * @property scale A multiplier for the output resolution (e.g., 2.0f for 2x size).
+     * @property backgroundColor The background color of the exported file.
+     * @property includeWatermark Whether to add a watermark to the output.
+     * @property cropToContent If true, the output is cropped to the smallest rectangle containing all objects.
+     */
     data class ExportOptions(
         val format: ExportFormat = ExportFormat.PNG,
         val quality: Int = 95,
@@ -24,6 +44,11 @@ class ExportManager(private val context: Context) {
         val cropToContent: Boolean = false,
     )
 
+    /**
+     * The main export function. It runs on the IO dispatcher and delegates to format-specific handlers.
+     *
+     * @return A [Result] containing the output [File] on success or an [Exception] on failure.
+     */
     suspend fun exportCanvas(
         objects: List<DrawingObject>,
         canvasWidth: Int,
@@ -43,6 +68,7 @@ class ExportManager(private val context: Context) {
         }
     }
 
+    // Handles the logic for exporting to a PNG file.
     private fun exportAsPNG(
         objects: List<DrawingObject>,
         width: Int,
@@ -50,38 +76,40 @@ class ExportManager(private val context: Context) {
         options: ExportOptions,
         outputFile: File,
     ) {
+        // Determine the drawing bounds (either full canvas or cropped to content).
         val bounds = if (options.cropToContent) {
             calculateContentBounds(objects)
         } else {
             RectF(0f, 0f, width.toFloat(), height.toFloat())
         }
 
+        // // Create a bitmap with the specified dimensions and scale.
         val exportWidth = (bounds.width() * options.scale).toInt()
         val exportHeight = (bounds.height() * options.scale).toInt()
-
         val bitmap = createBitmap(exportWidth, exportHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
+        // Prepare the canvas (scale, translate for cropping, set background).
         canvas.scale(options.scale, options.scale)
         canvas.translate(-bounds.left, -bounds.top)
         canvas.drawColor(options.backgroundColor)
 
+        // Draw all objects onto the bitmap canvas.
         objects.forEach { it.draw(canvas) }
 
         if (options.includeWatermark) {
-            canvas.save()
-            canvas.translate(bounds.left, bounds.top)
-            drawWatermark(canvas, exportWidth, exportHeight, options.scale)
-            canvas.restore()
+            canvas.withTranslation(bounds.left, bounds.top) {
+                drawWatermark(this, exportWidth, exportHeight, options.scale)
+            }
         }
 
         outputFile.outputStream().use { stream ->
             bitmap.compress(Bitmap.CompressFormat.PNG, options.quality, stream)
         }
-
         bitmap.recycle()
     }
 
+    // Handles the logic for exporting to a JPEG file.
     private fun exportAsJPEG(
         objects: List<DrawingObject>,
         width: Int,
@@ -97,7 +125,6 @@ class ExportManager(private val context: Context) {
 
         val exportWidth = (bounds.width() * options.scale).toInt()
         val exportHeight = (bounds.height() * options.scale).toInt()
-
         val bitmap = createBitmap(exportWidth, exportHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
@@ -108,19 +135,18 @@ class ExportManager(private val context: Context) {
         objects.forEach { it.draw(canvas) }
 
         if (options.includeWatermark) {
-            canvas.save()
-            canvas.translate(bounds.left, bounds.top)
-            drawWatermark(canvas, exportWidth, exportHeight, options.scale)
-            canvas.restore()
+            canvas.withTranslation(bounds.left, bounds.top) {
+                drawWatermark(this, exportWidth, exportHeight, options.scale)
+            }
         }
 
         outputFile.outputStream().use { stream ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, options.quality, stream)
         }
-
         bitmap.recycle()
     }
 
+    // Handles the logic for exporting to a PDF.
     private fun exportAsPDF(
         objects: List<DrawingObject>,
         width: Int,
@@ -156,15 +182,15 @@ class ExportManager(private val context: Context) {
 
         // Draw watermark at the bottom right of the PDF page
         if (options.includeWatermark) {
-            canvas.save()
+            canvas.withSave {
 
-            // Reset translation to draw watermark at correct position
-            if (options.cropToContent) {
-                canvas.translate(bounds.left, bounds.top)
+                // Reset translation to draw watermark at correct position
+                if (options.cropToContent) {
+                    translate(bounds.left, bounds.top)
+                }
+
+                drawWatermarkPDF(this, pdfWidth, pdfHeight)
             }
-
-            drawWatermarkPDF(canvas, pdfWidth, pdfHeight)
-            canvas.restore()
         }
 
         pdfDocument.finishPage(page)
@@ -176,6 +202,7 @@ class ExportManager(private val context: Context) {
         pdfDocument.close()
     }
 
+    // Calculates the minimum bounding box that contains all drawing objects, plus padding.
     private fun calculateContentBounds(objects: List<DrawingObject>): RectF {
         if (objects.isEmpty()) return RectF(0f, 0f, 100f, 100f)
 
@@ -207,15 +234,14 @@ class ExportManager(private val context: Context) {
         val textBounds = Rect()
         watermarkPaint.getTextBounds(text, 0, text.length, textBounds)
 
-        canvas.save()
-        canvas.scale(1f / scale, 1f / scale)
-        canvas.drawText(
-            text,
-            (width * scale) - textBounds.width() - 20f,
-            (height * scale) - 20f,
-            watermarkPaint
-        )
-        canvas.restore()
+        canvas.withScale(1f / scale, 1f / scale) {
+            drawText(
+                text,
+                (width * scale) - textBounds.width() - 20f,
+                (height * scale) - 20f,
+                watermarkPaint
+            )
+        }
     }
 
     private fun drawWatermarkPDF(canvas: Canvas, width: Int, height: Int) {

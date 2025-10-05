@@ -1,32 +1,49 @@
 <resources>
     <string name="app_name">WhiteboardApp</string>
+
+    <!-- Tool descriptions -->
     <string name="pen_tool">Pen Tool</string>
     <string name="eraser_tool">Eraser Tool</string>
-    <string name="undo">Undo</string>
     <string name="select_tool">Select Tool</string>
+    <string name="text_tool">Text Tool</string>
     <string name="line_tool">Line Tool</string>
     <string name="rectangle_tool">Rectangle Tool</string>
     <string name="circle_tool">Circle Tool</string>
-    <string name="fill_btn">Fill</string>
-    <string name="text_hint">Enter text…</string>
-    <string name="radio_align_left">Left</string>
-    <string name="radio_align_center">Center</string>
-    <string name="radio_align_right">Right</string>
-    <string name="text_view_size">Size: 48sp</string>
-    <string name="toggle_italic_textoff">I</string>
-    <string name="toggle_italic_texton">I</string>
-    <string name="toggle_bold_textoff">B</string>
-    <string name="toggle_bold_texton">B</string>
-    <string name="text_tool">Text Tool</string>
+
+    <!-- Actions -->
+    <string name="undo">Undo</string>
+    <string name="redo">Redo</string>
     <string name="new_session">New Session</string>
     <string name="save_session">Save Session</string>
     <string name="load_session">Load Session</string>
-    <string name="redo">Redo</string>
+    <string name="export">Export</string>
+    <string name="toggle_alignment">Toggle Smart Guides</string>
+
+    <!-- Dialog strings -->
+    <string name="text_hint">Enter text…</string>
+    <string name="toggle_bold_textoff">B</string>
+    <string name="toggle_bold_texton">B</string>
+    <string name="toggle_italic_textoff">I</string>
+    <string name="toggle_italic_texton">I</string>
+    <string name="text_view_size">Text Size:</string>
+    <string name="radio_align_left">Left</string>
+    <string name="radio_align_center">Center</string>
+    <string name="radio_align_right">Right</string>
+    <string name="fill_btn">Fill</string>
+
+    <!-- Export -->
     <string name="export_format">Export Format</string>
     <string name="quality_95">Quality: 95%</string>
-    <string name="scale">Scale</string>
+    <string name="scale">Scale:</string>
     <string name="crop_to_content">Crop to content</string>
     <string name="include_watermark">Include watermark</string>
-    <string name="export">Export</string>
-    <string name="toggle_alignment">Toggle Alignment</string>
+
+    <!-- Error messages -->
+    <string name="error_save_failed">Failed to save session</string>
+    <string name="error_load_failed">Failed to load session</string>
+    <string name="error_export_failed">Export failed</string>
+    <string name="error_memory">Low memory warning</string>
+
+    <string name="quality_label">Quality: %d%%</string>
+    <string name="text_size_label">Size: %dsp</string>
 </resources>

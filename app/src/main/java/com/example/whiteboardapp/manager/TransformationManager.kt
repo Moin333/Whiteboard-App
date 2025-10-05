@@ -6,16 +6,30 @@ import com.example.whiteboardapp.model.TextObject
 import kotlin.math.atan2
 import kotlin.math.min
 
+/**
+ * Manages the state of an active object transformation (resize or rotate).
+ * It saves the object's initial state when a transformation begins and calculates
+ * the new state based on the user's drag gesture.
+ */
 class TransformationManager {
     private var activeObject: DrawingObject? = null
     private var activeHandle: HandleType? = null
 
-    // Initial state saved on ACTION_DOWN
+    // The state of the object and touch position when the transformation started.
     private var initialX = 0f
     private var initialY = 0f
     private var initialRotation = 0f
     private var initialBounds = android.graphics.RectF()
 
+    /**
+     * Begins a transformation on an object.
+     * This should be called on ACTION_DOWN when a user grabs a transform handle.
+     *
+     * @param obj The object to be transformed.
+     * @param handle The [HandleType] that was grabbed.
+     * @param x The initial touch x-coordinate.
+     * @param y The initial touch y-coordinate.
+     */
     fun startTransform(obj: DrawingObject, handle: HandleType, x: Float, y: Float) {
         activeObject = obj
         activeHandle = handle
@@ -25,6 +39,12 @@ class TransformationManager {
         initialBounds.set(obj.bounds)
     }
 
+    /**
+     * Updates the object's properties based on the current touch position.
+     * This should be called on ACTION_MOVE.
+     *
+     * @return True if a transformation was active and updated, otherwise false.
+     */
     fun updateTransform(obj: DrawingObject, x: Float, y: Float): Boolean {
         if (activeObject?.id != obj.id || activeHandle == null) return false
 
@@ -35,11 +55,13 @@ class TransformationManager {
         return true
     }
 
+    // Ends the current transformation. Should be called on ACTION_UP.
     fun endTransform() {
         activeObject = null
         activeHandle = null
     }
 
+    // Calculates and applies the new rotation to the object.
     private fun handleRotation(obj: DrawingObject, x: Float, y: Float) {
         val centerX = initialBounds.centerX()
         val centerY = initialBounds.centerY()
@@ -50,10 +72,10 @@ class TransformationManager {
 
         // Calculate the change in angle and convert to degrees
         val angleChange = Math.toDegrees((currentAngle - startAngle).toDouble()).toFloat()
-
         obj.rotation = (initialRotation + angleChange + 360) % 360
     }
 
+    // Calculates and applies the new size/bounds to the object.
     private fun handleResize(obj: DrawingObject, x: Float, y: Float) {
         val dx = x - initialX
         val dy = y - initialY
@@ -110,18 +132,13 @@ class TransformationManager {
             }
             is DrawingObject.PathObject -> {
                 // Path resizing is complex and requires matrix transformation.
-                // For simplicity here, we'll skip implementing it, but a real
-                // implementation would apply a scale matrix to the path.
+               // TODO: Implement path scaling with transformation matrix
             }
         }
     }
+
+    // Checks if a transformation is currently in progress.
     fun isTransforming(): Boolean {
-        try {
-            val field = this::class.java.getDeclaredField("activeObject")
-            field.isAccessible = true
-            return field.get(this) != null
-        } catch (e: Exception) {
-            return false
-        }
+        return activeObject != null
     }
 }

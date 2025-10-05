@@ -6,6 +6,10 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import com.example.whiteboardapp.R
 
+/**
+ * A custom view containing buttons for zoom in, zoom out, reset, and fit-to-screen.
+ * It uses lambda properties for callbacks (e.g., onZoomIn).
+ */
 class ZoomControlsView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null

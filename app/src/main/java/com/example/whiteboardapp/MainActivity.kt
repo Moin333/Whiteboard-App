@@ -23,14 +23,23 @@ import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
+import com.example.whiteboardapp.data.WhiteboardRepository
+import com.example.whiteboardapp.manager.AutoSaveManager
 import com.example.whiteboardapp.manager.ExportManager
+import com.example.whiteboardapp.utils.ErrorHandler
 import com.example.whiteboardapp.view.ExportDialog
 import kotlinx.coroutines.launch
 import java.io.File
 
+/**
+ * The main activity of the application. It hosts the [WhiteboardView] and the toolbar,
+ * and it is responsible for initializing the [WhiteboardViewModel] and connecting all UI
+ * components to their respective actions in the ViewModel.
+ */
 class MainActivity : AppCompatActivity() {
 
     private val viewModel: WhiteboardViewModel by viewModels()
+    private var autoSaveManager: AutoSaveManager? = null
     private lateinit var whiteboardView: WhiteboardView
     private lateinit var zoomControls: ZoomControlsView
     private lateinit var colorPaletteContainer: View
@@ -54,16 +63,35 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        whiteboardView = findViewById(R.id.whiteboardView)
-        whiteboardView.setViewModel(viewModel)
+        try {
+            setContentView(R.layout.activity_main)
 
-        // Initialize zoom controls
-        setupZoomControls()
+            whiteboardView = findViewById(R.id.whiteboardView)
+            // Crucially, provide the ViewModel to the View.
+            whiteboardView.setViewModel(viewModel)
 
-        setupToolbar()
-        observeViewModel()
+            setupZoomControls()
+            setupToolbar()
+            observeViewModel()
+
+            // Initialize auto-save
+            autoSaveManager = AutoSaveManager(
+                repository = WhiteboardRepository(),
+                intervalMinutes = 5
+            )
+
+            autoSaveManager?.startAutoSave(
+                scope = lifecycleScope,
+                getObjects = { viewModel.objectManager.getObjects() },
+                getCurrentSessionId = { viewModel.currentSessionId.value }
+            )
+
+        } catch (e: Exception) {
+            ErrorHandler.handleException(this, e, "Failed to initialize app") {
+                recreate()
+            }
+        }
     }
 
     private fun setupZoomControls() {
@@ -86,8 +114,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Sets up listeners for all the buttons and controls in the toolbar.
+     */
     private fun setupToolbar() {
-        // Tool selection buttons
         penButton = findViewById(R.id.btnPen)
         eraserButton = findViewById(R.id.btnEraser)
         undoButton = findViewById(R.id.btnUndo)
@@ -106,51 +136,63 @@ class MainActivity : AppCompatActivity() {
         alignmentButton.isSelected = true
 
         penButton.setOnClickListener {
+            animateButtonPress(it)
             selectTool(DrawingTool.Pen)
         }
 
         eraserButton.setOnClickListener {
+            animateButtonPress(it)
             selectTool(DrawingTool.Eraser)
         }
 
         undoButton.setOnClickListener {
+            animateButtonPress(it)
             viewModel.undo()
         }
 
         redoButton.setOnClickListener {
+            animateButtonPress(it)
             viewModel.redo()
         }
 
         selectButton.setOnClickListener {
+            animateButtonPress(it)
             selectTool(DrawingTool.Select)
         }
 
         lineButton.setOnClickListener {
+            animateButtonPress(it)
             selectTool(DrawingTool.Shape(ShapeType.LINE))
         }
 
         rectButton.setOnClickListener {
+            animateButtonPress(it)
             selectTool(DrawingTool.Shape(ShapeType.RECTANGLE))
         }
 
         circleButton.setOnClickListener {
+            animateButtonPress(it)
             selectTool(DrawingTool.Shape(ShapeType.CIRCLE))
         }
 
         textButton.setOnClickListener {
+            animateButtonPress(it)
             selectTool(DrawingTool.Text)
         }
 
-        fillToggle.setOnCheckedChangeListener { _, isChecked ->
+        fillToggle.setOnCheckedChangeListener { view, isChecked ->
+            animateButtonPress(view)
             viewModel.toggleFill(isChecked)
         }
 
         newButton.setOnClickListener {
+            animateButtonPress(it)
             viewModel.createNewSession()
             Toast.makeText(this, "New canvas created", Toast.LENGTH_SHORT).show()
         }
 
         saveButton.setOnClickListener {
+            animateButtonPress(it)
             val editText = EditText(this).apply {
                 hint = "Enter session name"
             }
@@ -161,47 +203,51 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save as New") { _, _ ->
                     val name = editText.text.toString().ifBlank { "Untitled Session" }
-                    viewModel.saveAsNewSession(name)
-                    Toast.makeText(this, "Saved as a new session!", Toast.LENGTH_SHORT).show()
+                    saveAsNewSession(name)
                 }
 
             if (viewModel.currentSessionId.value != null) {
                 builder.setNeutralButton("Overwrite") { _, _ ->
                     val name = editText.text.toString().ifBlank { "Untitled Session" }
-                    viewModel.saveCurrentSession(name)
-                    Toast.makeText(this, "Session overwritten!", Toast.LENGTH_SHORT).show()
+                    saveCurrentSession(name)
                 }
             }
-
             builder.show()
         }
 
-        loadButton.setOnClickListener {
+        loadButton.setOnClickListener { it ->
+            animateButtonPress(it)
             lifecycleScope.launch {
-                val sessions = viewModel.getSessions()
-                val sessionNames = sessions.map { it.name }.toTypedArray()
+                try {
+                    val sessions = viewModel.getSessions()
+                    val sessionNames = sessions.map { it.name }.toTypedArray()
 
-                if (sessionNames.isEmpty()) {
-                    Toast.makeText(this@MainActivity, "No saved sessions found.", Toast.LENGTH_SHORT).show()
-                    return@launch
-                }
-
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Load Session")
-                    .setItems(sessionNames) { _, which ->
-                        val selectedSession = sessions[which]
-                        viewModel.loadSession(selectedSession.id)
+                    if (sessionNames.isEmpty()) {
+                        Toast.makeText(this@MainActivity, "No saved sessions found.", Toast.LENGTH_SHORT).show()
+                        return@launch
                     }
-                    .setNegativeButton("Cancel", null)
-                    .show()
+
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Load Session")
+                        .setItems(sessionNames) { _, which ->
+                            val selectedSession = sessions[which]
+                            loadSession(selectedSession.id)
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                } catch (e: Exception) {
+                    ErrorHandler.handleException(this@MainActivity, e, "Failed to load sessions list")
+                }
             }
         }
 
         exportButton.setOnClickListener {
+            animateButtonPress(it)
             showExportDialog()
         }
 
         alignmentButton.setOnClickListener {
+            animateButtonPress(it)
             alignmentButton.isSelected = !alignmentButton.isSelected
             whiteboardView.setAlignmentEnabled(alignmentButton.isSelected)
             Toast.makeText(
@@ -226,6 +272,24 @@ class MainActivity : AppCompatActivity() {
 
         // Set default tool selection
         selectTool(DrawingTool.Pen)
+    }
+
+    /**
+     * Animates button press with scale effect for visual feedback
+     */
+    private fun animateButtonPress(view: View) {
+        view.animate()
+            .scaleX(0.9f)
+            .scaleY(0.9f)
+            .setDuration(100)
+            .withEndAction {
+                view.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(100)
+                    .start()
+            }
+            .start()
     }
 
     private fun selectTool(tool: DrawingTool) {
@@ -271,6 +335,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Observes LiveData from the ViewModel to update the UI state.
+     * For example, it enables/disables the undo/redo buttons based on the command history.
+     */
     private fun observeViewModel() {
         viewModel.currentTool.observe(this) { tool ->
             val isPenOrShape = tool is DrawingTool.Pen || tool is DrawingTool.Shape
@@ -334,6 +402,8 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 setOnClickListener {
+                    // Animate color selection
+                    animateButtonPress(this)
                     viewModel.setStrokeColor(color)
                     updateColorSelection(this)
                 }
@@ -350,15 +420,21 @@ class MainActivity : AppCompatActivity() {
             val color = child.tag as Int
 
             child.isSelected = false
-            child.scaleX = 1.0f
-            child.scaleY = 1.0f
+            child.animate()
+                .scaleX(1.0f)
+                .scaleY(1.0f)
+                .setDuration(150)
+                .start()
             child.elevation = 0f
             child.setBackgroundColor(color)
         }
 
         selectedView.isSelected = true
-        selectedView.scaleX = 1.2f
-        selectedView.scaleY = 1.2f
+        selectedView.animate()
+            .scaleX(1.2f)
+            .scaleY(1.2f)
+            .setDuration(150)
+            .start()
         selectedView.elevation = 8f
     }
 
@@ -429,5 +505,55 @@ class MainActivity : AppCompatActivity() {
         }
 
         startActivity(android.content.Intent.createChooser(shareIntent, "Share whiteboard"))
+    }
+
+    private fun saveCurrentSession(name: String) {
+        viewModel.saveCurrentSession(name) { result ->
+            result.fold(
+                onSuccess = {
+                    Toast.makeText(this, "Session saved successfully", Toast.LENGTH_SHORT).show()
+                },
+                onFailure = { exception ->
+                    ErrorHandler.handleException(this, exception, "Failed to save session") {
+                        saveCurrentSession(name)
+                    }
+                }
+            )
+        }
+    }
+
+    private fun saveAsNewSession(name: String) {
+        viewModel.saveAsNewSession(name) { result ->
+            result.fold(
+                onSuccess = {
+                    Toast.makeText(this, "Saved as new session!", Toast.LENGTH_SHORT).show()
+                },
+                onFailure = { exception ->
+                    ErrorHandler.handleException(this, exception, "Failed to save session") {
+                        saveAsNewSession(name)
+                    }
+                }
+            )
+        }
+    }
+
+    private fun loadSession(sessionId: org.mongodb.kbson.ObjectId) {
+        viewModel.loadSession(sessionId) { result ->
+            result.fold(
+                onSuccess = {
+                    Toast.makeText(this, "Session loaded", Toast.LENGTH_SHORT).show()
+                },
+                onFailure = { exception ->
+                    ErrorHandler.handleException(this, exception, "Failed to load session") {
+                        loadSession(sessionId)
+                    }
+                }
+            )
+        }
+    }
+
+    override fun onDestroy() {
+        autoSaveManager?.stopAutoSave()
+        super.onDestroy()
     }
 }
