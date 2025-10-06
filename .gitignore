@@ -12,7 +12,6 @@
 # Local configuration and properties
 /local.properties
 local.properties
-gradle.properties
 
 # Keystore files
 *.jks
