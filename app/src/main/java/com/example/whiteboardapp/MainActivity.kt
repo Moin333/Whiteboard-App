@@ -472,7 +472,7 @@ class MainActivity : AppCompatActivity() {
                 this,
                 options,
                 outputFile,
-                whiteboardView.width * 3, // Canvas is 3x view size
+                whiteboardView.width * 3, // Canvas size is dynamically adjusted
                 whiteboardView.height * 3,
             ) { result ->
                 result.onSuccess { file ->

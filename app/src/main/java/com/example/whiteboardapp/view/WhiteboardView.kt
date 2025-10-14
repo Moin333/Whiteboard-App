@@ -61,7 +61,8 @@ class WhiteboardView @JvmOverloads constructor(
     private var panStartY = 0f
 
     // Canvas size multiplier (3x of view size)
-    private val canvasMultiplier = 3f
+    private var canvasMultiplier = 3f
+    private val maxBitmapSizeMB = 80f
     private var canvasWidth = 0
     private var canvasHeight = 0
 
@@ -143,6 +144,46 @@ class WhiteboardView @JvmOverloads constructor(
     }
 
     /**
+     * Calculates safe canvas dimensions that won't exceed memory limits
+     */
+    private fun calculateSafeCanvasDimensions(viewWidth: Int, viewHeight: Int): Pair<Int, Int> {
+        val displayMetrics = resources.displayMetrics
+        val screenWidthPx = displayMetrics.widthPixels
+
+        // Adjust multiplier based on screen size
+        canvasMultiplier = when {
+            screenWidthPx > 3000 -> 1.2f  // Large IFPs (4K+)
+            screenWidthPx > 2000 -> 1.5f  // Tablets/smaller IFPs
+            screenWidthPx > 1200 -> 2.0f  // Large phones/small tablets
+            else -> 2.5f                   // Regular phones
+        }
+
+        // Calculate theoretical canvas size with multiplier
+        var testWidth = (viewWidth * canvasMultiplier).toInt()
+        var testHeight = (viewHeight * canvasMultiplier).toInt()
+
+        // Calculate memory required (ARGB_8888 = 4 bytes per pixel)
+        var requiredMemoryMB = (testWidth * testHeight * 4f) / (1024f * 1024f)
+
+        // If it exceeds limit, scale down further
+        if (requiredMemoryMB > maxBitmapSizeMB) {
+            val scaleFactor = kotlin.math.sqrt(maxBitmapSizeMB / requiredMemoryMB)
+            testWidth = (testWidth * scaleFactor).toInt()
+            testHeight = (testHeight * scaleFactor).toInt()
+
+            android.util.Log.w("WhiteboardView",
+                "Canvas size reduced to fit memory: ${testWidth}x${testHeight} " +
+                        "(~${String.format("%.1f", testWidth * testHeight * 4f / (1024f * 1024f))} MB)")
+        }
+
+        // Ensure minimum size (at least equal to view size)
+        testWidth = maxOf(testWidth, viewWidth)
+        testHeight = maxOf(testHeight, viewHeight)
+
+        return Pair(testWidth, testHeight)
+    }
+
+    /**
      * Sets up the off-screen bitmap and canvas when the view's size is determined.
      * The canvas is created larger than the view to allow for panning.
      */
@@ -151,23 +192,47 @@ class WhiteboardView @JvmOverloads constructor(
         if (::canvasBitmap.isInitialized) {
             canvasBitmap.recycle()
         }
-        /// Create a canvas that is larger than the view.
-        canvasWidth = (w * canvasMultiplier).toInt()
-        canvasHeight = (h * canvasMultiplier).toInt()
-        canvasBitmap = createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
-        drawCanvas = Canvas(canvasBitmap)
-        drawCanvas.drawColor(Color.WHITE)
 
-        if (!isCanvasInitialized) {
-            transformManager.centerCanvas(
-                w.toFloat(), h.toFloat(),
-                canvasWidth.toFloat(), canvasHeight.toFloat()
-            )
-            // Flip the switch so this code never runs again
-            isCanvasInitialized = true
+        // Calculate safe canvas dimensions
+        val dimensions = calculateSafeCanvasDimensions(w, h)
+        canvasWidth = dimensions.first
+        canvasHeight = dimensions.second
+
+        try {
+            canvasBitmap = createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
+            drawCanvas = Canvas(canvasBitmap)
+            drawCanvas.drawColor(Color.WHITE)
+
+            // Center the canvas initially
+            if (!isCanvasInitialized) {
+                transformManager.centerCanvas(
+                    w.toFloat(), h.toFloat(),
+                    canvasWidth.toFloat(), canvasHeight.toFloat()
+                )
+                // Flip the switch so this code never runs again
+                isCanvasInitialized = true
+            }
+            refreshCanvas()
+
+            android.util.Log.i("WhiteboardView",
+                "Canvas created: ${canvasWidth}x${canvasHeight} " +
+                        "(~${String.format("%.1f", canvasWidth * canvasHeight * 4f / (1024f * 1024f))} MB)")
+        } catch (e: OutOfMemoryError) {
+            // Emergency fallback: use 1:1 canvas size
+            canvasWidth = w
+            canvasHeight = h
+            canvasBitmap = createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
+            drawCanvas = Canvas(canvasBitmap)
+            drawCanvas.drawColor(Color.WHITE)
+
+            android.widget.Toast.makeText(
+                context,
+                "Using minimal canvas size due to memory constraints",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+
+            android.util.Log.e("WhiteboardView", "OutOfMemoryError: Fallback to 1:1 canvas", e)
         }
-
-        refreshCanvas()
     }
 
     /**
