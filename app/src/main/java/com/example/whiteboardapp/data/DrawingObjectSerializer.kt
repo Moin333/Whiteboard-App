@@ -4,57 +4,51 @@ import android.graphics.Paint
 import com.example.whiteboardapp.data.db.DrawingObjectRealm
 import com.example.whiteboardapp.model.DrawingObject
 import com.example.whiteboardapp.model.ShapeType
+import com.example.whiteboardapp.model.StylusStrokeObject
+import com.example.whiteboardapp.model.StrokePoint
 import com.example.whiteboardapp.model.TextObject
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * A singleton object responsible for serializing [DrawingObject] models into JSON strings
- * for database storage and deserializing them back into their original object form.
- * This acts as a bridge between the complex in-memory objects and the simple string format
- * required by [DrawingObjectRealm].
+ * Serializes [DrawingObject] models into JSON strings for Realm storage,
+ * and deserializes them back.
+ *
+ * Supported types and their "type" field values in the DB:
+ *  - [DrawingObject.PathObject]  → "path"
+ *  - [DrawingObject.ShapeObject] → "shape"
+ *  - [TextObject]                → "text"
+ *  - [StylusStrokeObject]        → "stylus_stroke"
  */
 object DrawingObjectSerializer {
 
-    /**
-     * Serializes any given [DrawingObject] into a JSON string.
-     * It delegates to a specific serialization function based on the object's type.
-     *
-     * @param obj The [DrawingObject] to serialize.
-     * @return A JSON formatted string representing the object.
-     */
     fun serialize(obj: DrawingObject): String {
         return when (obj) {
-            is DrawingObject.PathObject -> serializePath(obj)
+            is DrawingObject.PathObject  -> serializePath(obj)
             is DrawingObject.ShapeObject -> serializeShape(obj)
-            is TextObject -> serializeText(obj)
+            is TextObject                -> serializeText(obj)
+            is StylusStrokeObject        -> serializeStylusStroke(obj)
         }
     }
 
-
-    /**
-     * Deserializes a [DrawingObjectRealm] database entity into a [DrawingObject] model.
-     * It reads the object's type and JSON data to reconstruct the appropriate model.
-     *
-     * @param realmObj The database object to deserialize.
-     * @return A fully formed [DrawingObject], or null if deserialization fails.
-     */
     fun deserialize(realmObj: DrawingObjectRealm): DrawingObject? {
         return try {
             val json = JSONObject(realmObj.data)
-            val type = realmObj.type
-            when (type) {
-                "path" -> deserializePath(json)
-                "shape" -> deserializeShape(json)
-                "text" -> deserializeText(json)
-                else -> null
+            when (realmObj.type) {
+                "path"          -> deserializePath(json)
+                "shape"         -> deserializeShape(json)
+                "text"          -> deserializeText(json)
+                "stylus_stroke" -> deserializeStylusStroke(json)
+                else            -> null
             }
         } catch (e: Exception) {
-            // Log error
+            e.printStackTrace()
             null
         }
     }
 
-    // region Private Serialization Methods
+    // ── Serialization ─────────────────────────────────────────────────────────
+
     private fun serializePath(path: DrawingObject.PathObject): String {
         return JSONObject().apply {
             put("id", path.id)
@@ -93,9 +87,32 @@ object DrawingObjectSerializer {
             put("rotation", text.rotation.toDouble())
         }.toString()
     }
-    // endregion
 
-    // region Private Deserialization Methods
+    private fun serializeStylusStroke(obj: StylusStrokeObject): String {
+        // Use getSerializablePoints() to ensure move offsets are baked in
+        val pointsArray = JSONArray()
+        obj.getSerializablePoints().forEach { p ->
+            pointsArray.put(JSONObject().apply {
+                put("x", p.x.toDouble())
+                put("y", p.y.toDouble())
+                put("pressure", p.pressure.toDouble())
+                put("tiltX", p.tiltX.toDouble())
+                put("tiltY", p.tiltY.toDouble())
+                put("ts", p.timestamp)
+            })
+        }
+        return JSONObject().apply {
+            put("id", obj.id)
+            put("baseWidth", obj.baseWidth.toDouble())
+            put("color", obj.color)
+            put("isTiltEnabled", obj.isTiltEnabled)
+            put("rotation", obj.rotation.toDouble())
+            put("points", pointsArray)
+        }.toString()
+    }
+
+    // ── Deserialization ───────────────────────────────────────────────────────
+
     private fun deserializePath(json: JSONObject): DrawingObject.PathObject {
         val paint = Paint().apply {
             style = Paint.Style.STROKE
@@ -152,5 +169,31 @@ object DrawingObjectSerializer {
             rotation = json.optDouble("rotation", 0.0).toFloat()
         }
     }
-    // endregion
+
+    private fun deserializeStylusStroke(json: JSONObject): StylusStrokeObject {
+        val pointsArray = json.getJSONArray("points")
+        val points = ArrayList<StrokePoint>(pointsArray.length())
+        for (i in 0 until pointsArray.length()) {
+            val pJson = pointsArray.getJSONObject(i)
+            points.add(
+                StrokePoint(
+                    x = pJson.getDouble("x").toFloat(),
+                    y = pJson.getDouble("y").toFloat(),
+                    pressure = pJson.getDouble("pressure").toFloat(),
+                    tiltX = pJson.optDouble("tiltX", 0.0).toFloat(),
+                    tiltY = pJson.optDouble("tiltY", 0.0).toFloat(),
+                    timestamp = pJson.optLong("ts", 0L)
+                )
+            )
+        }
+        return StylusStrokeObject(
+            id = json.getString("id"),
+            rawPoints = points,
+            baseWidth = json.getDouble("baseWidth").toFloat(),
+            color = json.getInt("color"),
+            isTiltEnabled = json.optBoolean("isTiltEnabled", true)
+        ).apply {
+            rotation = json.optDouble("rotation", 0.0).toFloat()
+        }
+    }
 }

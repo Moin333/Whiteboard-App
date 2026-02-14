@@ -3,25 +3,20 @@ package com.example.whiteboardapp.manager
 import android.graphics.PathMeasure
 import android.graphics.RectF
 import com.example.whiteboardapp.model.DrawingObject
+import com.example.whiteboardapp.model.StrokePoint
+import com.example.whiteboardapp.model.StylusStrokeObject
 import com.example.whiteboardapp.model.TextObject
 import kotlin.math.hypot
 
 /**
- * A helper class dedicated to handling the logic of erasing objects.
- * It provides more precise collision detection than simple bounding box checks,
- * especially for complex Path objects.
+ * Handles the logic of erasing objects from the canvas.
+ *
+ * For [StylusStrokeObject], erasure checks sample points along the stored [StrokePoint] list
+ * (similar to the [DrawingObject.PathObject] check) but uses the point list directly
+ * rather than [PathMeasure], which avoids the need to re-build the rendered path.
  */
 class ErasureHandler {
 
-    /**
-     * Checks if a given object should be erased based on the eraser's position and size.
-     *
-     * @param obj The [DrawingObject] to check.
-     * @param eraserX The center x-coordinate of the eraser.
-     * @param eraserY The center y-coordinate of the eraser.
-     * @param eraserRadius The radius of the eraser.
-     * @return True if the object intersects with the eraser's area, false otherwise.
-     */
     fun canEraseObject(
         obj: DrawingObject,
         eraserX: Float,
@@ -35,57 +30,36 @@ class ErasureHandler {
             eraserY + eraserRadius
         )
 
-        // Step 1: Perform a quick, low-cost bounding box intersection test first.
-        if (!RectF.intersects(eraserBounds, obj.bounds)) {
-            return false
-        }
+        // Quick bounding-box rejection
+        if (!RectF.intersects(eraserBounds, obj.bounds)) return false
 
-        // Step 2: If the bounds intersect, perform a more accurate, object-specific check.
+        // Type-specific precision check
         return when (obj) {
-            is DrawingObject.PathObject -> {
-                // For paths, we need to check points along the path itself.
-                isPathInEraserRange(obj, eraserX, eraserY, eraserRadius)
-            }
-            is DrawingObject.ShapeObject, is TextObject -> {
-                // For solid shapes and text, the bounds check is sufficient.
-                true
-            }
+            is DrawingObject.PathObject -> isPathInEraserRange(obj, eraserX, eraserY, eraserRadius)
+            is StylusStrokeObject       -> isStylusStrokeInEraserRange(obj, eraserX, eraserY, eraserRadius)
+            is DrawingObject.ShapeObject,
+            is TextObject               -> true  // Bounds check is sufficient for solid shapes/text
         }
     }
 
-    /**
-     * Performs a more accurate intersection check for Path objects by sampling points
-     * along the path's length and checking their distance from the eraser's center.
-     *
-     * @return True if any sampled point on the path is within the eraser's range.
-     */
+    // ── PathObject (finger strokes) ────────────────────────────────────────
+
     private fun isPathInEraserRange(
         pathObject: DrawingObject.PathObject,
-        centerX: Float,
-        centerY: Float,
-        radius: Float
+        centerX: Float, centerY: Float, radius: Float
     ): Boolean {
         val pathMeasure = PathMeasure(pathObject.path, false)
         if (pathMeasure.length <= 0) return false
 
         val coords = FloatArray(2)
         val totalLength = pathMeasure.length
-
-        // Use adaptive sampling - more samples for longer paths
-        val minSamples = 10
-        val maxSamples = 50
-        val samplesPerUnit = 0.5f // samples per pixel
-        // Adaptively sample the path to balance performance and accuracy.
-        val sampleCount = (totalLength * samplesPerUnit).toInt().coerceIn(minSamples, maxSamples)
+        val sampleCount = (totalLength * 0.5f).toInt().coerceIn(10, 50)
         val stepSize = totalLength / sampleCount
 
-        // Check start point
         pathMeasure.getPosTan(0f, coords, null)
         if (isPointInEraserRange(coords[0], coords[1], centerX, centerY, radius, pathObject.paint.strokeWidth)) {
             return true
         }
-
-        // Check sampled points along the path
         for (i in 1..sampleCount) {
             val distance = (stepSize * i).coerceAtMost(totalLength)
             pathMeasure.getPosTan(distance, coords, null)
@@ -96,20 +70,41 @@ class ErasureHandler {
         return false
     }
 
+    // ── StylusStrokeObject (stylus strokes) ────────────────────────────────
+
     /**
-     * Checks if a single point is within the circular area of the eraser,
-     * taking the object's stroke width into account.
+     * For stylus strokes we already have the point list; no PathMeasure needed.
+     * Sample every Nth point for performance (at most 50 checks).
      */
+    private fun isStylusStrokeInEraserRange(
+        obj: StylusStrokeObject,
+        centerX: Float, centerY: Float, radius: Float
+    ): Boolean {
+        val pts = obj.points
+        if (pts.isEmpty()) return false
+
+        val step = maxOf(1, pts.size / 50)
+        var i = 0
+        while (i < pts.size) {
+            val p = pts[i]
+            val effectiveRadius = (obj.baseWidth * p.pressure.coerceAtLeast(StrokePoint.MIN_PRESSURE)) / 2f
+            if (isPointInEraserRange(p.x, p.y, centerX, centerY, radius, effectiveRadius * 2f)) {
+                return true
+            }
+            i += step
+        }
+        // Always check the last point
+        val last = pts.last()
+        val effectiveRadius = (obj.baseWidth * last.pressure.coerceAtLeast(StrokePoint.MIN_PRESSURE)) / 2f
+        return isPointInEraserRange(last.x, last.y, centerX, centerY, radius, effectiveRadius * 2f)
+    }
+
     private fun isPointInEraserRange(
-        pointX: Float,
-        pointY: Float,
-        eraserX: Float,
-        eraserY: Float,
-        eraserRadius: Float,
-        strokeWidth: Float
+        pointX: Float, pointY: Float,
+        eraserX: Float, eraserY: Float,
+        eraserRadius: Float, strokeWidth: Float
     ): Boolean {
         val distance = hypot(pointX - eraserX, pointY - eraserY)
-        // The effective radius includes half the stroke width.
         return distance <= eraserRadius + (strokeWidth / 2f)
     }
 }
