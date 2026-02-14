@@ -14,9 +14,13 @@ import androidx.core.graphics.createBitmap
 import com.example.whiteboardapp.manager.AlignmentHelper
 import com.example.whiteboardapp.manager.ShapeDrawingHandler
 import com.example.whiteboardapp.manager.CanvasTransformManager
+import com.example.whiteboardapp.manager.StylusInputProcessor
 import com.example.whiteboardapp.model.DrawingObject
 import com.example.whiteboardapp.model.DrawingTool
+import com.example.whiteboardapp.model.StrokePoint
+import com.example.whiteboardapp.model.StylusStrokeObject
 import com.example.whiteboardapp.model.TextObject
+import com.example.whiteboardapp.renderer.VariableWidthStrokeRenderer
 import com.example.whiteboardapp.utils.PerformanceOptimizer
 import com.example.whiteboardapp.viewmodel.WhiteboardViewModel
 import kotlin.math.abs
@@ -26,8 +30,21 @@ import androidx.core.graphics.withClip
 import androidx.core.graphics.withSave
 
 /**
- * The main custom view for the whiteboard. It handles rendering all objects,
- * user touch input, panning, zooming, and tool interactions.
+ * The main custom view for the whiteboard.
+ *
+ * Stylus handling overview:
+ *  - All [MotionEvent]s are first passed through [stylusInputProcessor] before any other logic.
+ *  - If [StylusInputProcessor.ProcessedInput.isPalmRejected] is true the event is consumed
+ *    silently — no drawing, no panning, no selection.
+ *  - If the source is [StylusInputProcessor.InputSource.ERASER] the view auto-routes to
+ *    eraser-mode logic regardless of the toolbar selection.
+ *  - For [DrawingTool.Pen] + stylus: historical points are extracted and stored in
+ *    [currentStylusPoints] (canvas-space). On ACTION_UP a [StylusStrokeObject] is created
+ *    with all the pressure/tilt data. Live preview is drawn via [VariableWidthStrokeRenderer.drawLivePreview].
+ *  - For [DrawingTool.Pen] + finger: the original [Path] based approach is retained so that
+ *    the app works normally on non-stylus devices.
+ *  - [onHoverEvent] is overridden so a cursor dot appears before the stylus touches (essential
+ *    on IFPs where the hover range can be 10–20 mm).
  */
 class WhiteboardView @JvmOverloads constructor(
     context: Context,
@@ -39,13 +56,29 @@ class WhiteboardView @JvmOverloads constructor(
     private var shapeDrawingHandler: ShapeDrawingHandler = ShapeDrawingHandler(this)
     private val transformManager = CanvasTransformManager()
 
-    // Gesture detectors for handling complex touch events like pinch-to-zoom and double-tap.
+    // ── Stylus / Input ────────────────────────────────────────────────────────
+    private val stylusInputProcessor = StylusInputProcessor()
+
+    /**
+     * Accumulates [StrokePoint]s (canvas-space) while drawing with a stylus.
+     * Cleared on ACTION_DOWN and converted to a [StylusStrokeObject] on ACTION_UP.
+     */
+    private val currentStylusPoints = mutableListOf<StrokePoint>()
+    private var isDrawingWithStylus = false
+
+    /**
+     * Hover position (screen-space). Set via [onHoverEvent], cleared on touch.
+     * Non-null value causes a cursor indicator to be drawn in [onDraw].
+     */
+    private var hoverScreenPoint: PointF? = null
+
+    // ── Gesture detectors ────────────────────────────────────────────────────
     private val scaleGestureDetector: ScaleGestureDetector
     private val gestureDetector: GestureDetector
     private var velocityTracker: VelocityTracker? = null
     private val flingAnimator = ValueAnimator()
 
-    // State variables
+    // ── Tool state ────────────────────────────────────────────────────────────
     private var currentTool: DrawingTool = DrawingTool.Pen
     private var allObjects = listOf<DrawingObject>()
     private var lastTouchX = 0f
@@ -54,42 +87,32 @@ class WhiteboardView @JvmOverloads constructor(
     private var isScaling = false
     private var isPanning = false
     private var activePointerId = MotionEvent.INVALID_POINTER_ID
-
-    // Track canvas panning state for select mode
     private var isCanvasPanning = false
     private var panStartX = 0f
     private var panStartY = 0f
+    private var isTap = true
+    private val tapSlop = 10f
 
-    // Canvas size multiplier (3x of view size)
+    // ── Canvas sizing ─────────────────────────────────────────────────────────
     private var canvasMultiplier = 3f
     private val maxBitmapSizeMB = 80f
     private var canvasWidth = 0
     private var canvasHeight = 0
-
-    // Track if this is a simple tap vs drag/pan
-    private var isTap = true
-    private val tapSlop = 10f // Movement threshold to distinguish tap from drag
-
-    // Boolean for centering the canvas view
     private var isCanvasInitialized = false
 
-    // --- Paint Objects ---
+    // ── Paint objects ─────────────────────────────────────────────────────────
     private val drawPaint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.STROKE
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
     }
-
     private val canvasPaint = Paint(Paint.DITHER_FLAG)
-
-
     private val gridPaint = Paint().apply {
         color = "#E0E0E0".toColorInt()
         strokeWidth = 1f
         style = Paint.Style.STROKE
     }
-
     private val zoomTextPaint = Paint().apply {
         textSize = 32f
         color = Color.BLACK
@@ -97,28 +120,31 @@ class WhiteboardView @JvmOverloads constructor(
         isAntiAlias = true
     }
 
-    // --- Canvas & Path ---
+    // ── Off-screen bitmap canvas ──────────────────────────────────────────────
     private lateinit var drawCanvas: Canvas
     private lateinit var canvasBitmap: Bitmap
+
+    /** The finger-mode path being drawn (used when input source is FINGER/UNKNOWN). */
     private var currentPath = Path()
 
-    // Visible bounds for optimization
     private var visibleBounds = RectF()
 
+    // ── Alignment ─────────────────────────────────────────────────────────────
     private val alignmentHelper = AlignmentHelper()
     private var currentAlignmentGuides = listOf<AlignmentHelper.AlignmentGuide>()
-    private var alignmentEnabled = true // Can be toggled via settings
+    private var alignmentEnabled = true
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Initialization
+    // ─────────────────────────────────────────────────────────────────────────
 
     init {
         scaleGestureDetector = ScaleGestureDetector(context, ScaleListener())
         gestureDetector = GestureDetector(context, GestureListener())
-        // Hardware acceleration is crucial for smooth canvas operations.
         setLayerType(LAYER_TYPE_HARDWARE, null)
     }
 
-    fun setAlignmentEnabled(enabled: Boolean) {
-        alignmentEnabled = enabled
-    }
+    fun setAlignmentEnabled(enabled: Boolean) { alignmentEnabled = enabled }
 
     fun setViewModel(vm: WhiteboardViewModel) {
         viewModel = vm
@@ -127,12 +153,14 @@ class WhiteboardView @JvmOverloads constructor(
 
     private fun observeViewModel() {
         viewModel?.apply {
-            // Observe changes in the ViewModel and update the view's state.
             currentTool.observeForever { tool ->
                 this@WhiteboardView.currentTool = tool
                 isTransforming = false
                 isCanvasPanning = false
                 isPanning = false
+                // Reset stylus state when the user switches tools
+                currentStylusPoints.clear()
+                isDrawingWithStylus = false
             }
             strokeWidth.observeForever { width -> drawPaint.strokeWidth = width }
             strokeColor.observeForever { color -> drawPaint.color = color }
@@ -143,248 +171,184 @@ class WhiteboardView @JvmOverloads constructor(
         }
     }
 
-    /**
-     * Calculates safe canvas dimensions that won't exceed memory limits
-     */
-    private fun calculateSafeCanvasDimensions(viewWidth: Int, viewHeight: Int): Pair<Int, Int> {
-        val displayMetrics = resources.displayMetrics
-        val screenWidthPx = displayMetrics.widthPixels
+    // ─────────────────────────────────────────────────────────────────────────
+    // Layout / Size
+    // ─────────────────────────────────────────────────────────────────────────
 
-        // Adjust multiplier based on screen size
-        canvasMultiplier = when {
-            screenWidthPx > 3000 -> 1.2f  // Large IFPs (4K+)
-            screenWidthPx > 2000 -> 1.5f  // Tablets/smaller IFPs
-            screenWidthPx > 1200 -> 2.0f  // Large phones/small tablets
-            else -> 2.5f                   // Regular phones
-        }
-
-        // Calculate theoretical canvas size with multiplier
-        var testWidth = (viewWidth * canvasMultiplier).toInt()
-        var testHeight = (viewHeight * canvasMultiplier).toInt()
-
-        // Calculate memory required (ARGB_8888 = 4 bytes per pixel)
-        var requiredMemoryMB = (testWidth * testHeight * 4f) / (1024f * 1024f)
-
-        // If it exceeds limit, scale down further
-        if (requiredMemoryMB > maxBitmapSizeMB) {
-            val scaleFactor = kotlin.math.sqrt(maxBitmapSizeMB / requiredMemoryMB)
-            testWidth = (testWidth * scaleFactor).toInt()
-            testHeight = (testHeight * scaleFactor).toInt()
-
-            android.util.Log.w("WhiteboardView",
-                "Canvas size reduced to fit memory: ${testWidth}x${testHeight} " +
-                        "(~${String.format("%.1f", testWidth * testHeight * 4f / (1024f * 1024f))} MB)")
-        }
-
-        // Ensure minimum size (at least equal to view size)
-        testWidth = maxOf(testWidth, viewWidth)
-        testHeight = maxOf(testHeight, viewHeight)
-
-        return Pair(testWidth, testHeight)
-    }
-
-    /**
-     * Sets up the off-screen bitmap and canvas when the view's size is determined.
-     * The canvas is created larger than the view to allow for panning.
-     */
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (::canvasBitmap.isInitialized) {
-            canvasBitmap.recycle()
-        }
+        if (::canvasBitmap.isInitialized) canvasBitmap.recycle()
 
-        // Calculate safe canvas dimensions
-        val dimensions = calculateSafeCanvasDimensions(w, h)
-        canvasWidth = dimensions.first
-        canvasHeight = dimensions.second
+        val (cw, ch) = calculateSafeCanvasDimensions(w, h)
+        canvasWidth = cw
+        canvasHeight = ch
 
         try {
             canvasBitmap = createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
             drawCanvas = Canvas(canvasBitmap)
             drawCanvas.drawColor(Color.WHITE)
 
-            // Center the canvas initially
             if (!isCanvasInitialized) {
-                transformManager.centerCanvas(
-                    w.toFloat(), h.toFloat(),
-                    canvasWidth.toFloat(), canvasHeight.toFloat()
-                )
-                // Flip the switch so this code never runs again
+                transformManager.centerCanvas(w.toFloat(), h.toFloat(), canvasWidth.toFloat(), canvasHeight.toFloat())
                 isCanvasInitialized = true
             }
             refreshCanvas()
-
-            android.util.Log.i("WhiteboardView",
-                "Canvas created: ${canvasWidth}x${canvasHeight} " +
-                        "(~${String.format("%.1f", canvasWidth * canvasHeight * 4f / (1024f * 1024f))} MB)")
         } catch (e: OutOfMemoryError) {
-            // Emergency fallback: use 1:1 canvas size
-            canvasWidth = w
-            canvasHeight = h
-            canvasBitmap = createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888)
+            canvasWidth = w; canvasHeight = h
+            canvasBitmap = createBitmap(w, h, Bitmap.Config.ARGB_8888)
             drawCanvas = Canvas(canvasBitmap)
             drawCanvas.drawColor(Color.WHITE)
-
-            android.widget.Toast.makeText(
-                context,
-                "Using minimal canvas size due to memory constraints",
-                android.widget.Toast.LENGTH_LONG
-            ).show()
-
-            android.util.Log.e("WhiteboardView", "OutOfMemoryError: Fallback to 1:1 canvas", e)
         }
     }
 
-    /**
-     * Redraws all content onto the off-screen [canvasBitmap].
-     * This is an optimization to avoid redrawing every object on every frame.
-     */
+    private fun calculateSafeCanvasDimensions(viewWidth: Int, viewHeight: Int): Pair<Int, Int> {
+        val screenWidthPx = resources.displayMetrics.widthPixels
+        canvasMultiplier = when {
+            screenWidthPx > 3000 -> 1.2f
+            screenWidthPx > 2000 -> 1.5f
+            screenWidthPx > 1200 -> 2.0f
+            else -> 2.5f
+        }
+        var tw = (viewWidth * canvasMultiplier).toInt()
+        var th = (viewHeight * canvasMultiplier).toInt()
+        val requiredMB = (tw * th * 4f) / (1024f * 1024f)
+        if (requiredMB > maxBitmapSizeMB) {
+            val scale = kotlin.math.sqrt(maxBitmapSizeMB / requiredMB)
+            tw = (tw * scale).toInt()
+            th = (th * scale).toInt()
+        }
+        return Pair(maxOf(tw, viewWidth), maxOf(th, viewHeight))
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Canvas refresh / draw
+    // ─────────────────────────────────────────────────────────────────────────
+
     private fun refreshCanvas() {
-        if (::drawCanvas.isInitialized) {
-            // Get visible bounds for optimization
-            visibleBounds = transformManager.getVisibleBounds(width.toFloat(), height.toFloat())
+        if (!::drawCanvas.isInitialized) return
+        visibleBounds = transformManager.getVisibleBounds(width.toFloat(), height.toFloat())
 
-            // Clear only the visible area if zoomed in
-            if (transformManager.currentScale > 1.5f) {
-                // Clear visible region
-                drawCanvas.withClip(visibleBounds) {
-                    drawColor(Color.WHITE, PorterDuff.Mode.SRC)
-
-                    // Draw grid only in visible area
-                    drawGridInBounds(this, visibleBounds)
-
-                    // Draw only visible objects
-                    val visibleObjects = PerformanceOptimizer.getVisibleObjects(
-                        allObjects,
-                        visibleBounds
-                    )
-                    visibleObjects.forEach { it.draw(this) }
-                }
-            } else {
-                // Full canvas redraw when zoomed out
-                drawCanvas.drawColor(Color.WHITE, PorterDuff.Mode.SRC)
-                drawGrid(drawCanvas)
-                allObjects.forEach { it.draw(drawCanvas) }
+        if (transformManager.currentScale > 1.5f) {
+            drawCanvas.withClip(visibleBounds) {
+                drawColor(Color.WHITE, PorterDuff.Mode.SRC)
+                drawGridInBounds(this, visibleBounds)
+                PerformanceOptimizer.getVisibleObjects(allObjects, visibleBounds).forEach { it.draw(this) }
             }
-
-            // Draw selection if present
-            viewModel?.let {
-                drawCanvas.withSave {
-                    it.objectManager.drawSelection(this)
-                }
-            }
-
-            invalidate() // Request a redraw of the view itself.
+        } else {
+            drawCanvas.drawColor(Color.WHITE, PorterDuff.Mode.SRC)
+            drawGrid(drawCanvas)
+            allObjects.forEach { it.draw(drawCanvas) }
         }
+
+        viewModel?.objectManager?.let { om ->
+            drawCanvas.withSave { om.drawSelection(this) }
+        }
+
+        invalidate()
     }
 
-    private fun drawGridInBounds(canvas: Canvas, bounds: RectF) {
-        val gridSize = 50f
-        val startX = (bounds.left / gridSize).toInt() * gridSize
-        val endX = ((bounds.right / gridSize).toInt() + 1) * gridSize
-        val startY = (bounds.top / gridSize).toInt() * gridSize
-        val endY = ((bounds.bottom / gridSize).toInt() + 1) * gridSize
-
-        var x = startX
-        while (x <= endX) {
-            canvas.drawLine(x, bounds.top, x, bounds.bottom, gridPaint)
-            x += gridSize
-        }
-
-        var y = startY
-        while (y <= endY) {
-            canvas.drawLine(bounds.left, y, bounds.right, y, gridPaint)
-            y += gridSize
-        }
-    }
-
-    private fun drawGrid(canvas: Canvas) {
-        val gridSize = 50f
-        for (x in 0 until canvasWidth step gridSize.toInt()) {
-            canvas.drawLine(x.toFloat(), 0f, x.toFloat(), canvasHeight.toFloat(), gridPaint)
-        }
-        for (y in 0 until canvasHeight step gridSize.toInt()) {
-            canvas.drawLine(0f, y.toFloat(), canvasWidth.toFloat(), y.toFloat(), gridPaint)
-        }
-    }
-
-    /**
-     * The main drawing method. It draws the pre-rendered [canvasBitmap] onto the screen,
-     * applying the current zoom and pan transformation.
-     */
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        canvas.drawColor("#F5F5F5".toColorInt()) // Background color of the view
+        canvas.drawColor("#F5F5F5".toColorInt())
 
-        // Apply transformation
         canvas.withSave {
             concat(transformManager.getMatrix())
 
-            // Draw the bitmap canvas
+            // Committed objects (bitmap)
             drawBitmap(canvasBitmap, 0f, 0f, canvasPaint)
 
-            // Draw current path being drawn (for real-time feedback)
-            if (currentTool is DrawingTool.Pen && !currentPath.isEmpty) {
-                drawPath(currentPath, drawPaint)
-            } else if (currentTool is DrawingTool.Shape) {
-                shapeDrawingHandler.drawPreview(this)
+            // ── Live drawing previews ─────────────────────────────────────
+            when {
+                // Stylus pen: variable-width live preview
+                isDrawingWithStylus && currentStylusPoints.isNotEmpty() -> {
+                    VariableWidthStrokeRenderer.drawLivePreview(
+                        canvas = this,
+                        points = currentStylusPoints,
+                        color = drawPaint.color,
+                        baseWidth = drawPaint.strokeWidth
+                    )
+                }
+                // Finger/mouse pen: classic path preview
+                currentTool is DrawingTool.Pen && !currentPath.isEmpty -> {
+                    drawPath(currentPath, drawPaint)
+                }
+                // Shape tool preview
+                currentTool is DrawingTool.Shape -> {
+                    shapeDrawingHandler.drawPreview(this)
+                }
             }
 
-            // Draw alignment guides when moving objects
+            // Alignment guides
             if (currentAlignmentGuides.isNotEmpty()) {
-                val visibleBounds =
+                alignmentHelper.drawGuides(
+                    this,
+                    currentAlignmentGuides,
                     transformManager.getVisibleBounds(width.toFloat(), height.toFloat())
-                alignmentHelper.drawGuides(this, currentAlignmentGuides, visibleBounds)
+                )
+            }
+
+            // ── Hover cursor (drawn in canvas space) ──────────────────────
+            hoverScreenPoint?.let { screenPt ->
+                val canvasPt = transformManager.getTransformedPoint(screenPt.x, screenPt.y)
+                // Only draw if within canvas bounds
+                if (canvasPt.x in 0f..canvasWidth.toFloat() && canvasPt.y in 0f..canvasHeight.toFloat()) {
+                    VariableWidthStrokeRenderer.drawHoverIndicator(
+                        canvas = this,
+                        x = canvasPt.x,
+                        y = canvasPt.y,
+                        color = drawPaint.color,
+                        baseWidth = drawPaint.strokeWidth
+                    )
+                }
             }
         }
 
-        // Draw UI overlays (not transformed)
         drawOverlays(canvas)
     }
 
-    private fun drawOverlays(canvas: Canvas) {
-        // Draw zoom percentage
-        val zoomPercent = (transformManager.currentScale * 100).toInt()
-        val zoomText = "$zoomPercent%"
-        canvas.drawText(zoomText, 20f, height - 20f, zoomTextPaint)
-
-        // Draw canvas bounds indicator when zoomed out
-        if (transformManager.currentScale < 1f) {
-            drawCanvasBounds(canvas)
-        }
-    }
-
-    private fun drawCanvasBounds(canvas: Canvas) {
-        val boundsPaint = Paint().apply {
-            color = Color.BLUE
-            alpha = 100
-            style = Paint.Style.STROKE
-            strokeWidth = 2f
-            pathEffect = DashPathEffect(floatArrayOf(10f, 5f), 0f)
-        }
-
-        val canvasRect = RectF(0f, 0f, canvasWidth.toFloat(), canvasHeight.toFloat())
-        val transformedRect = transformManager.getTransformedRect(canvasRect)
-        canvas.drawRect(transformedRect, boundsPaint)
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Touch handling
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Handles all touch events, delegating to gesture detectors and tool-specific handlers.
+     * Main touch event handler.
+     *
+     * Processing order:
+     *  1. Collect velocity for fling.
+     *  2. Feed to scale gesture detector (always, even for stylus — pinch zoom must work).
+     *  3. Feed to gesture detector (for double-tap zoom).
+     *  4. Pass through [stylusInputProcessor] to detect tool type and palm rejection.
+     *  5. If eraser tip → auto-erase regardless of toolbar selection.
+     *  6. If palm-rejected finger + drawing tool → consume silently, return true.
+     *  7. Delegate to per-action handling.
      */
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
 
-        // Handle velocity tracking
-        if (velocityTracker == null) {
-            velocityTracker = VelocityTracker.obtain()
-        }
+        if (velocityTracker == null) velocityTracker = VelocityTracker.obtain()
         velocityTracker?.addMovement(event)
 
-        // Always process scale detector for pinch zoom (two fingers)
+        // Scale + gesture detectors always receive events (pinch zoom works alongside stylus)
         scaleGestureDetector.onTouchEvent(event)
-
-        // Process gesture detector only for double tap
         gestureDetector.onTouchEvent(event)
+
+        // Stylus classification + palm rejection
+        val processed = stylusInputProcessor.processEvent(event)
+
+        // Clear hover when the pen touches
+        hoverScreenPoint = null
+
+        // ── Eraser tip: auto-erase ────────────────────────────────────────
+        if (processed.source == StylusInputProcessor.InputSource.ERASER) {
+            handleEraserTipEvent(action, processed.points)
+            return true
+        }
+
+        // ── Palm rejection for drawing tools ─────────────────────────────
+        // Allow finger panning in Select mode (user may rest palm while selecting)
+        if (processed.isPalmRejected && currentTool !is DrawingTool.Select) {
+            return true
+        }
 
         when (action) {
             MotionEvent.ACTION_DOWN -> {
@@ -396,28 +360,23 @@ class WhiteboardView @JvmOverloads constructor(
                 panStartY = event.y
                 isTap = true
 
-                // For select mode, determine if we're selecting an object or panning
                 if (currentTool is DrawingTool.Select && event.pointerCount == 1) {
                     val transformed = transformManager.getTransformedPoint(event.x, event.y)
                     val objectManager = viewModel?.objectManager
                     val clickedObject = objectManager?.selectObjectAt(transformed.x, transformed.y)
-
                     if (clickedObject != null) {
-                        // We clicked on an object
                         isTransforming = objectManager.isTransforming()
                         isCanvasPanning = false
                         lastTouchX = transformed.x
                         lastTouchY = transformed.y
                         refreshCanvas()
                     } else {
-                        // Clicked on empty space - start canvas panning
                         isCanvasPanning = true
                         objectManager?.clearSelection()
                         refreshCanvas()
                     }
                 } else if (!isScaling && event.pointerCount == 1) {
-                    // Other tools
-                    handleToolAction(event, MotionEvent.ACTION_DOWN)
+                    handleToolActionDown(event, processed)
                 }
             }
 
@@ -425,18 +384,15 @@ class WhiteboardView @JvmOverloads constructor(
                 if (isTap) {
                     val dx = abs(event.x - panStartX)
                     val dy = abs(event.y - panStartY)
-                    if (dx > tapSlop || dy > tapSlop) {
-                        isTap = false
-                    }
+                    if (dx > tapSlop || dy > tapSlop) isTap = false
                 }
+
                 if (currentTool is DrawingTool.Select && event.pointerCount == 1) {
                     if (isCanvasPanning) {
-                        // Pan the canvas with one finger in select mode
                         val dx = event.x - panStartX
                         val dy = event.y - panStartY
                         panStartX = event.x
                         panStartY = event.y
-
                         transformManager.translate(dx, dy)
                         transformManager.constrainTranslation(
                             canvasWidth.toFloat(), canvasHeight.toFloat(),
@@ -444,13 +400,11 @@ class WhiteboardView @JvmOverloads constructor(
                         )
                         invalidate()
                     } else {
-                        // Handle object manipulation
                         val transformed = transformManager.getTransformedPoint(event.x, event.y)
                         handleSelection(transformed.x, transformed.y, MotionEvent.ACTION_MOVE)
                     }
                 } else if (!isScaling && event.pointerCount == 1) {
-                    // Other tools
-                    handleToolAction(event, MotionEvent.ACTION_MOVE)
+                    handleToolActionMove(event, processed)
                 }
             }
 
@@ -460,26 +414,19 @@ class WhiteboardView @JvmOverloads constructor(
                         val transformed = transformManager.getTransformedPoint(event.x, event.y)
                         handleSelection(transformed.x, transformed.y, MotionEvent.ACTION_UP)
                     }
-
-                    // Handle fling for canvas panning
                     if (isCanvasPanning) {
                         velocityTracker?.let { tracker ->
                             tracker.computeCurrentVelocity(1000)
-                            val velocityX = tracker.xVelocity
-                            val velocityY = tracker.yVelocity
-
-                            if (abs(velocityX) > 100 || abs(velocityY) > 100) {
-                                handleFling(velocityX, velocityY)
-                            }
+                            val vx = tracker.xVelocity
+                            val vy = tracker.yVelocity
+                            if (abs(vx) > 100 || abs(vy) > 100) handleFling(vx, vy)
                         }
                     }
-                } else if (!isScaling && event.pointerCount == 1) {
-                    handleToolAction(event, MotionEvent.ACTION_UP)
+                } else if (!isScaling) {
+                    handleToolActionUp(event, processed)
                 }
 
-                if (isTap) {
-                    performClick()
-                }
+                if (isTap) performClick()
 
                 activePointerId = MotionEvent.INVALID_POINTER_ID
                 isPanning = false
@@ -491,12 +438,11 @@ class WhiteboardView @JvmOverloads constructor(
             MotionEvent.ACTION_POINTER_UP -> {
                 val pointerIndex = event.actionIndex
                 val pointerId = event.getPointerId(pointerIndex)
-
                 if (pointerId == activePointerId) {
-                    val newPointerIndex = if (pointerIndex == 0) 1 else 0
-                    lastTouchX = event.getX(newPointerIndex)
-                    lastTouchY = event.getY(newPointerIndex)
-                    activePointerId = event.getPointerId(newPointerIndex)
+                    val newIndex = if (pointerIndex == 0) 1 else 0
+                    lastTouchX = event.getX(newIndex)
+                    lastTouchY = event.getY(newIndex)
+                    activePointerId = event.getPointerId(newIndex)
                 }
             }
         }
@@ -504,52 +450,193 @@ class WhiteboardView @JvmOverloads constructor(
         return true
     }
 
-    private fun handleToolAction(event: MotionEvent, action: Int) {
-        // Transform touch coordinates to canvas space
-        val transformed = transformManager.getTransformedPoint(event.x, event.y)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Hover events (stylus proximity before touch)
+    // ─────────────────────────────────────────────────────────────────────────
 
-        // Check if touch is within canvas bounds
-        if (transformed.x < 0 || transformed.x > canvasWidth ||
-            transformed.y < 0 || transformed.y > canvasHeight) {
-            return
+    /**
+     * Called when the stylus enters/moves within hover range (typically 5–20 mm above surface).
+     * We capture the screen-space hover position and draw a cursor indicator in [onDraw].
+     */
+    override fun onHoverEvent(event: MotionEvent): Boolean {
+        return when (event.action) {
+            MotionEvent.ACTION_HOVER_MOVE,
+            MotionEvent.ACTION_HOVER_ENTER -> {
+                // Only show hover cursor for pen/shape/text tools; suppress in select/eraser
+                if (currentTool is DrawingTool.Pen || currentTool is DrawingTool.Shape || currentTool is DrawingTool.Text) {
+                    hoverScreenPoint = PointF(event.x, event.y)
+                } else {
+                    hoverScreenPoint = null
+                }
+                invalidate()
+                true
+            }
+            MotionEvent.ACTION_HOVER_EXIT -> {
+                hoverScreenPoint = null
+                invalidate()
+                true
+            }
+            else -> super.onHoverEvent(event)
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Per-action dispatch helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private fun handleToolActionDown(
+        event: MotionEvent,
+        processed: StylusInputProcessor.ProcessedInput
+    ) {
+        val transformed = transformManager.getTransformedPoint(event.x, event.y)
+        if (isOutOfBounds(transformed.x, transformed.y)) return
 
         when (currentTool) {
-            is DrawingTool.Pen -> handlePenDrawing(transformed.x, transformed.y, action)
-            is DrawingTool.Shape -> handleShapeDrawing(event, transformed.x, transformed.y, action)
-            is DrawingTool.Select -> handleSelection(transformed.x, transformed.y, action)
-            is DrawingTool.Eraser -> handleErasing(transformed.x, transformed.y, action)
-            is DrawingTool.Text -> if (action == MotionEvent.ACTION_DOWN) handleTextTool(transformed.x, transformed.y)
+            is DrawingTool.Pen -> {
+                val isStylus = processed.source == StylusInputProcessor.InputSource.STYLUS
+                isDrawingWithStylus = isStylus
+                currentPath.reset()
+                currentStylusPoints.clear()
+
+                if (isStylus) {
+                    // Add the DOWN point(s) (usually one historical-less event on DOWN)
+                    addTransformedStylusPoints(processed.points)
+                    if (currentStylusPoints.isEmpty()) {
+                        currentStylusPoints.add(StrokePoint.plain(transformed.x, transformed.y, event.eventTime))
+                    }
+                } else {
+                    currentPath.moveTo(transformed.x, transformed.y)
+                }
+            }
+            is DrawingTool.Shape -> handleShapeDrawing(event, transformed.x, transformed.y, MotionEvent.ACTION_DOWN)
+            is DrawingTool.Select -> handleSelection(transformed.x, transformed.y, MotionEvent.ACTION_DOWN)
+            is DrawingTool.Eraser -> handleErasing(transformed.x, transformed.y, MotionEvent.ACTION_DOWN)
+            is DrawingTool.Text -> handleTextTool(transformed.x, transformed.y)
         }
     }
 
-    private fun handlePenDrawing(x: Float, y: Float, action: Int) {
-        when (action) {
-            MotionEvent.ACTION_DOWN -> {
-                currentPath.reset()
-                currentPath.moveTo(x, y)
-            }
-            MotionEvent.ACTION_MOVE -> {
-                currentPath.lineTo(x, y)
-                invalidate()
-            }
-            MotionEvent.ACTION_UP -> {
-                if (!currentPath.isEmpty) {
-                    val newPathObject = DrawingObject.PathObject(
-                        path = Path(currentPath),
-                        paint = Paint(drawPaint)
-                    )
-                    viewModel?.addObject(newPathObject)
-                    currentPath.reset()
+    private fun handleToolActionMove(
+        event: MotionEvent,
+        processed: StylusInputProcessor.ProcessedInput
+    ) {
+        when (currentTool) {
+            is DrawingTool.Pen -> {
+                if (isDrawingWithStylus) {
+                    // Add ALL extracted points (includes historical samples)
+                    addTransformedStylusPoints(processed.points)
+                    invalidate() // live preview redrawn in onDraw
+                } else {
+                    // Finger / mouse: classic path
+                    val transformed = transformManager.getTransformedPoint(event.x, event.y)
+                    if (!isOutOfBounds(transformed.x, transformed.y)) {
+                        currentPath.lineTo(transformed.x, transformed.y)
+                        invalidate()
+                    }
                 }
+            }
+            is DrawingTool.Shape -> {
+                val transformed = transformManager.getTransformedPoint(event.x, event.y)
+                handleShapeDrawing(event, transformed.x, transformed.y, MotionEvent.ACTION_MOVE)
+            }
+            is DrawingTool.Select -> {
+                val transformed = transformManager.getTransformedPoint(event.x, event.y)
+                handleSelection(transformed.x, transformed.y, MotionEvent.ACTION_MOVE)
+            }
+            is DrawingTool.Eraser -> {
+                val transformed = transformManager.getTransformedPoint(event.x, event.y)
+                handleErasing(transformed.x, transformed.y, MotionEvent.ACTION_MOVE)
+            }
+            else -> {}
+        }
+    }
+
+    private fun handleToolActionUp(
+        event: MotionEvent,
+        processed: StylusInputProcessor.ProcessedInput
+    ) {
+        val transformed = transformManager.getTransformedPoint(event.x, event.y)
+
+        when (currentTool) {
+            is DrawingTool.Pen -> {
+                if (isDrawingWithStylus) {
+                    // Add the final point from the UP event
+                    addTransformedStylusPoints(processed.points)
+
+                    if (currentStylusPoints.isNotEmpty()) {
+                        val strokeObj = StylusStrokeObject(
+                            rawPoints = currentStylusPoints.toList(),
+                            baseWidth = drawPaint.strokeWidth,
+                            color = drawPaint.color,
+                            isTiltEnabled = true
+                        )
+                        viewModel?.addObject(strokeObj)
+                    }
+                    currentStylusPoints.clear()
+                    isDrawingWithStylus = false
+                } else {
+                    // Finger/mouse path
+                    if (!currentPath.isEmpty) {
+                        viewModel?.addObject(
+                            DrawingObject.PathObject(
+                                path = Path(currentPath),
+                                paint = Paint(drawPaint)
+                            )
+                        )
+                        currentPath.reset()
+                    }
+                }
+            }
+            is DrawingTool.Shape -> {
+                if (!isOutOfBounds(transformed.x, transformed.y)) {
+                    handleShapeDrawing(event, transformed.x, transformed.y, MotionEvent.ACTION_UP)
+                }
+            }
+            is DrawingTool.Select -> handleSelection(transformed.x, transformed.y, MotionEvent.ACTION_UP)
+            else -> {}
+        }
+    }
+
+    /**
+     * Transforms each screen-space [StrokePoint] in [screenPoints] to canvas space
+     * and appends it to [currentStylusPoints].
+     * Points outside the canvas bounds are discarded.
+     */
+    private fun addTransformedStylusPoints(screenPoints: List<StrokePoint>) {
+        for (sp in screenPoints) {
+            val canvasPt = transformManager.getTransformedPoint(sp.x, sp.y)
+            if (!isOutOfBounds(canvasPt.x, canvasPt.y)) {
+                currentStylusPoints.add(sp.copy(x = canvasPt.x, y = canvasPt.y))
             }
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Eraser tip (back of stylus)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Handles TOOL_TYPE_ERASER events. The eraser tip should erase objects at the touch
+     * point regardless of the currently selected toolbar tool.
+     */
+    private fun handleEraserTipEvent(
+        action: Int,
+        screenPoints: List<StrokePoint>
+    ) {
+        if (action != MotionEvent.ACTION_DOWN && action != MotionEvent.ACTION_MOVE) return
+        // Use the last point in the batch (most current position)
+        val screenPt = screenPoints.lastOrNull() ?: return
+        val canvasPt = transformManager.getTransformedPoint(screenPt.x, screenPt.y)
+        if (!isOutOfBounds(canvasPt.x, canvasPt.y)) {
+            viewModel?.eraseObjectsAt(canvasPt.x, canvasPt.y)
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Existing tool handlers (unchanged logic, extracted for clarity)
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun handleShapeDrawing(event: MotionEvent, x: Float, y: Float, action: Int) {
         val shapeType = (currentTool as? DrawingTool.Shape)?.type ?: return
-
-        // Transform the event for the shape handler
         val transformedEvent = MotionEvent.obtain(event)
         transformedEvent.setLocation(x, y)
 
@@ -565,7 +652,6 @@ class WhiteboardView @JvmOverloads constructor(
         if (newShape != null && action == MotionEvent.ACTION_UP) {
             viewModel?.addObject(newShape)
         }
-
         transformedEvent.recycle()
         invalidate()
     }
@@ -579,7 +665,7 @@ class WhiteboardView @JvmOverloads constructor(
                 isTransforming = objectManager.isTransforming()
                 lastTouchX = x
                 lastTouchY = y
-                currentAlignmentGuides = emptyList() // Clear guides on new selection
+                currentAlignmentGuides = emptyList()
                 refreshCanvas()
             }
             MotionEvent.ACTION_MOVE -> {
@@ -595,24 +681,16 @@ class WhiteboardView @JvmOverloads constructor(
                         currentAlignmentGuides = alignmentHelper.findAlignmentGuides(
                             selectedObj,
                             allObjects.filter { it.id != selectedObj.id },
-                            threshold = 15f / transformManager.currentScale // Adjust for zoom
+                            threshold = 15f / transformManager.currentScale
                         )
-
-                        // If there are guides, snap to them
                         if (currentAlignmentGuides.isNotEmpty()) {
-                            val currentPos = PointF(x, y)
-                            val snappedPos = alignmentHelper.snapToGuides(
-                                currentPos,
-                                currentAlignmentGuides,
+                            val snapped = alignmentHelper.snapToGuides(
+                                PointF(x, y), currentAlignmentGuides,
                                 snapDistance = 15f / transformManager.currentScale
                             )
-
-                            // Apply snap adjustment
-                            val snapDx = snappedPos.x - currentPos.x
-                            val snapDy = snappedPos.y - currentPos.y
-                            if (snapDx != 0f || snapDy != 0f) {
-                                objectManager.moveSelected(snapDx, snapDy)
-                            }
+                            val snapDx = snapped.x - x
+                            val snapDy = snapped.y - y
+                            if (snapDx != 0f || snapDy != 0f) objectManager.moveSelected(snapDx, snapDy)
                         }
                     }
                 }
@@ -621,10 +699,7 @@ class WhiteboardView @JvmOverloads constructor(
                 refreshCanvas()
             }
             MotionEvent.ACTION_UP -> {
-                if (isTransforming) {
-                    objectManager.endTransform()
-                    isTransforming = false
-                }
+                if (isTransforming) { objectManager.endTransform(); isTransforming = false }
                 currentAlignmentGuides = emptyList()
                 refreshCanvas()
             }
@@ -639,124 +714,127 @@ class WhiteboardView @JvmOverloads constructor(
 
     private fun handleTextTool(x: Float, y: Float) {
         val clickedObject = viewModel?.objectManager?.selectObjectAt(x, y)
-
         if (clickedObject is TextObject) {
-            TextEditDialog(context, clickedObject) { updatedObject ->
-                viewModel?.updateObject(clickedObject.clone(), updatedObject)
+            TextEditDialog(context, clickedObject) { updated ->
+                viewModel?.updateObject(clickedObject.clone(), updated)
             }.show()
         } else {
             TextEditDialog(context, null) { newObject ->
-                newObject.x = x
-                newObject.y = y
+                newObject.x = x; newObject.y = y
                 viewModel?.addObject(newObject)
             }.show()
         }
     }
 
-    private fun handleFling(velocityX: Float, velocityY: Float) {
-        flingAnimator.cancel()
+    // ─────────────────────────────────────────────────────────────────────────
+    // Zoom controls
+    // ─────────────────────────────────────────────────────────────────────────
 
-        flingAnimator.apply {
-            setFloatValues(0f, 1f)
-            duration = 1000
-            interpolator = DecelerateInterpolator()
-
-            var lastValue = 0f
-            addUpdateListener { animator ->
-                val value = animator.animatedValue as Float
-                val delta = value - lastValue
-                lastValue = value
-
-                val dx = velocityX * delta * 0.002f
-                val dy = velocityY * delta * 0.002f
-
-                transformManager.translate(dx, dy)
-                transformManager.constrainTranslation(
-                    canvasWidth.toFloat(), canvasHeight.toFloat(),
-                    width.toFloat(), height.toFloat()
-                )
-                invalidate()
-            }
-
-            start()
-        }
-    }
-
-    // Zoom control methods
-    fun zoomIn() {
-        val centerX = width / 2f
-        val centerY = height / 2f
-        animateZoom(min(transformManager.currentScale * 1.5f, 5f), centerX, centerY)
-    }
-
-    fun zoomOut() {
-        val centerX = width / 2f
-        val centerY = height / 2f
-        animateZoom(maxOf(transformManager.currentScale / 1.5f, 0.25f), centerX, centerY)
-    }
+    fun zoomIn() { animateZoom(min(transformManager.currentScale * 1.5f, 5f), width / 2f, height / 2f) }
+    fun zoomOut() { animateZoom(maxOf(transformManager.currentScale / 1.5f, 0.25f), width / 2f, height / 2f) }
 
     fun resetZoom() {
-        transformManager.centerCanvas(
-            width.toFloat(), height.toFloat(),
-            canvasWidth.toFloat(), canvasHeight.toFloat()
-        )
+        transformManager.centerCanvas(width.toFloat(), height.toFloat(), canvasWidth.toFloat(), canvasHeight.toFloat())
         invalidate()
     }
 
     fun fitToScreen() {
-        transformManager.fitToScreen(
-            canvasWidth.toFloat(), canvasHeight.toFloat(),
-            width.toFloat(), height.toFloat()
-        )
+        transformManager.fitToScreen(canvasWidth.toFloat(), canvasHeight.toFloat(), width.toFloat(), height.toFloat())
         invalidate()
     }
 
     private fun animateZoom(targetScale: Float, focusX: Float, focusY: Float) {
         ValueAnimator.ofFloat(transformManager.currentScale, targetScale).apply {
             duration = 300
-            addUpdateListener { animator ->
-                val scale = animator.animatedValue as Float
-                transformManager.setScale(scale, focusX, focusY)
+            addUpdateListener {
+                transformManager.setScale(it.animatedValue as Float, focusX, focusY)
                 invalidate()
             }
             start()
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Drawing helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private fun drawGrid(canvas: Canvas) {
+        val gridSize = 50f
+        for (x in 0 until canvasWidth step gridSize.toInt())
+            canvas.drawLine(x.toFloat(), 0f, x.toFloat(), canvasHeight.toFloat(), gridPaint)
+        for (y in 0 until canvasHeight step gridSize.toInt())
+            canvas.drawLine(0f, y.toFloat(), canvasWidth.toFloat(), y.toFloat(), gridPaint)
+    }
+
+    private fun drawGridInBounds(canvas: Canvas, bounds: RectF) {
+        val gridSize = 50f
+        val startX = (bounds.left / gridSize).toInt() * gridSize
+        val endX = ((bounds.right / gridSize).toInt() + 1) * gridSize
+        val startY = (bounds.top / gridSize).toInt() * gridSize
+        val endY = ((bounds.bottom / gridSize).toInt() + 1) * gridSize
+        var x = startX
+        while (x <= endX) { canvas.drawLine(x, bounds.top, x, bounds.bottom, gridPaint); x += gridSize }
+        var y = startY
+        while (y <= endY) { canvas.drawLine(bounds.left, y, bounds.right, y, gridPaint); y += gridSize }
+    }
+
+    private fun drawOverlays(canvas: Canvas) {
+        val zoomPercent = (transformManager.currentScale * 100).toInt()
+        canvas.drawText("$zoomPercent%", 20f, height - 20f, zoomTextPaint)
+        if (transformManager.currentScale < 1f) drawCanvasBounds(canvas)
+    }
+
+    private fun drawCanvasBounds(canvas: Canvas) {
+        val boundsPaint = Paint().apply {
+            color = Color.BLUE; alpha = 100; style = Paint.Style.STROKE; strokeWidth = 2f
+            pathEffect = DashPathEffect(floatArrayOf(10f, 5f), 0f)
+        }
+        canvas.drawRect(
+            transformManager.getTransformedRect(RectF(0f, 0f, canvasWidth.toFloat(), canvasHeight.toFloat())),
+            boundsPaint
+        )
+    }
+
+    private fun isOutOfBounds(x: Float, y: Float) =
+        x < 0 || x > canvasWidth || y < 0 || y > canvasHeight
+
+    private fun handleFling(velocityX: Float, velocityY: Float) {
+        flingAnimator.cancel()
+        flingAnimator.apply {
+            setFloatValues(0f, 1f); duration = 1000; interpolator = DecelerateInterpolator()
+            var lastValue = 0f
+            addUpdateListener { animator ->
+                val value = animator.animatedValue as Float
+                val delta = value - lastValue; lastValue = value
+                transformManager.translate(velocityX * delta * 0.002f, velocityY * delta * 0.002f)
+                transformManager.constrainTranslation(canvasWidth.toFloat(), canvasHeight.toFloat(), width.toFloat(), height.toFloat())
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Gesture listeners
+    // ─────────────────────────────────────────────────────────────────────────
+
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-            isScaling = true
-            // Cancel any canvas panning when starting to scale
-            isCanvasPanning = false
-            return true
+            isScaling = true; isCanvasPanning = false; return true
         }
-
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            transformManager.setScale(
-                transformManager.currentScale * detector.scaleFactor,
-                detector.focusX,
-                detector.focusY
-            )
-            invalidate()
-            return true
+            transformManager.setScale(transformManager.currentScale * detector.scaleFactor, detector.focusX, detector.focusY)
+            invalidate(); return true
         }
-
-        override fun onScaleEnd(detector: ScaleGestureDetector) {
-            isScaling = false
-        }
+        override fun onScaleEnd(detector: ScaleGestureDetector) { isScaling = false }
     }
 
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
         override fun onDoubleTap(e: MotionEvent): Boolean {
-            // Allow double-tap zoom in all modes
-            val targetScale = if (transformManager.currentScale < 2f) 2f else 1f
-            animateZoom(targetScale, e.x, e.y)
+            animateZoom(if (transformManager.currentScale < 2f) 2f else 1f, e.x, e.y)
             return true
         }
     }
 
-    override fun performClick(): Boolean {
-        super.performClick()
-        return true
-    }
+    override fun performClick(): Boolean { super.performClick(); return true }
 }
