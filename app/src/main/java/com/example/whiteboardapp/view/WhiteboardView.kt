@@ -11,6 +11,7 @@ import android.view.View
 import android.animation.ValueAnimator
 import android.view.animation.DecelerateInterpolator
 import androidx.core.graphics.createBitmap
+import androidx.lifecycle.LifecycleOwner
 import com.example.whiteboardapp.manager.AlignmentHelper
 import com.example.whiteboardapp.manager.ShapeDrawingHandler
 import com.example.whiteboardapp.manager.CanvasTransformManager
@@ -146,14 +147,14 @@ class WhiteboardView @JvmOverloads constructor(
 
     fun setAlignmentEnabled(enabled: Boolean) { alignmentEnabled = enabled }
 
-    fun setViewModel(vm: WhiteboardViewModel) {
+    fun setViewModel(vm: WhiteboardViewModel, lifecycleOwner: LifecycleOwner) {
         viewModel = vm
-        observeViewModel()
+        observeViewModel(lifecycleOwner)
     }
 
-    private fun observeViewModel() {
+    private fun observeViewModel(lifecycleOwner: LifecycleOwner) {
         viewModel?.apply {
-            currentTool.observeForever { tool ->
+            currentTool.observe(lifecycleOwner) { tool ->
                 this@WhiteboardView.currentTool = tool
                 isTransforming = false
                 isCanvasPanning = false
@@ -162,9 +163,9 @@ class WhiteboardView @JvmOverloads constructor(
                 currentStylusPoints.clear()
                 isDrawingWithStylus = false
             }
-            strokeWidth.observeForever { width -> drawPaint.strokeWidth = width }
-            strokeColor.observeForever { color -> drawPaint.color = color }
-            drawingObjects.observeForever { objects ->
+            strokeWidth.observe(lifecycleOwner) { width -> drawPaint.strokeWidth = width }
+            strokeColor.observe(lifecycleOwner) { color -> drawPaint.color = color }
+            drawingObjects.observe(lifecycleOwner) { objects ->
                 allObjects = objects
                 refreshCanvas()
             }

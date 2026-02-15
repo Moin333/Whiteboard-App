@@ -69,7 +69,7 @@ class MainActivity : AppCompatActivity() {
 
             whiteboardView = findViewById(R.id.whiteboardView)
             // Crucially, provide the ViewModel to the View.
-            whiteboardView.setViewModel(viewModel)
+            whiteboardView.setViewModel(viewModel, this)
 
             setupZoomControls()
             setupToolbar()
