@@ -60,13 +60,11 @@ class WhiteboardRepository {
         val realm = Realm.open(WhiteboardApplication.config)
         var objects: List<DrawingObject> = emptyList()
         try {
-            realm.write {
-                val session = query<WhiteboardSession>("id == $0", sessionId).first().find()
-                objects = session?.objects
-                    ?.sortedBy { it.order }
-                    ?.mapNotNull { DrawingObjectSerializer.deserialize(it) }
-                    ?: emptyList()
-            }
+            val session = realm.query<WhiteboardSession>("id == $0", sessionId).first().find()
+            objects = session?.objects
+                ?.sortedBy { it.order }
+                ?.mapNotNull { DrawingObjectSerializer.deserialize(it) }
+                ?: emptyList()
         } finally {
             realm.close()
         }
