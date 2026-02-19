@@ -821,13 +821,27 @@ class WhiteboardView @JvmOverloads constructor(
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-            isScaling = true; isCanvasPanning = false; return true
+            isScaling = true
+            isCanvasPanning = false
+
+            // Cancel any in-progress stroke to prevent reconnection when drawing resumes.
+            // TODO (post-Sprint 2): Once undo is fixed for move/resize operations,
+            // upgrade this to commit the partial stroke instead of discarding it
+            // (matches Procreate/Fresco behavior — preserves accidental work as undoable).
+            currentPath.reset()
+            currentStylusPoints.clear()
+            isDrawingWithStylus = false
+
+            return true
         }
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             transformManager.setScale(transformManager.currentScale * detector.scaleFactor, detector.focusX, detector.focusY)
-            invalidate(); return true
+            invalidate()
+            return true
         }
-        override fun onScaleEnd(detector: ScaleGestureDetector) { isScaling = false }
+        override fun onScaleEnd(detector: ScaleGestureDetector) {
+            isScaling = false
+        }
     }
 
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
