@@ -159,7 +159,10 @@ class WhiteboardView @JvmOverloads constructor(
                 isTransforming = false
                 isCanvasPanning = false
                 isPanning = false
-                // Reset stylus state when the user switches tools
+                // Cancel any in-progress drawing when switching tools.
+                // This provides immediate visual feedback (preview disappears when
+                // tool button is tapped) and prevents reconnection edge cases.
+                currentPath.reset()
                 currentStylusPoints.clear()
                 isDrawingWithStylus = false
             }
