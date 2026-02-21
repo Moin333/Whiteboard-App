@@ -39,7 +39,6 @@ import java.io.File
 class MainActivity : AppCompatActivity() {
 
     private val viewModel: WhiteboardViewModel by viewModels()
-    private var autoSaveManager: AutoSaveManager? = null
     private lateinit var whiteboardView: WhiteboardView
     private lateinit var zoomControls: ZoomControlsView
     private lateinit var colorPaletteContainer: View
@@ -74,18 +73,6 @@ class MainActivity : AppCompatActivity() {
             setupZoomControls()
             setupToolbar()
             observeViewModel()
-
-            // Initialize auto-save
-            autoSaveManager = AutoSaveManager(
-                repository = WhiteboardRepository(),
-                intervalMinutes = 5
-            )
-
-            autoSaveManager?.startAutoSave(
-                scope = lifecycleScope,
-                getObjects = { viewModel.objectManager.getObjects() },
-                getCurrentSessionId = { viewModel.currentSessionId.value }
-            )
 
         } catch (e: Exception) {
             ErrorHandler.handleException(this, e, "Failed to initialize app") {
@@ -550,10 +537,5 @@ class MainActivity : AppCompatActivity() {
                 }
             )
         }
-    }
-
-    override fun onDestroy() {
-        autoSaveManager?.stopAutoSave()
-        super.onDestroy()
     }
 }
