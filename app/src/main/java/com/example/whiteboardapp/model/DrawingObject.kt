@@ -60,13 +60,19 @@ sealed class DrawingObject {
         val path: Path,
         val paint: Paint
     ) : DrawingObject() {
-        // Bounds are computed once and updated on move.
-        override val bounds: RectF = RectF().apply {
-            path.computeBounds(this, true)
-            // Expand bounds slightly for easier touch selection.
-            val expansion = paint.strokeWidth / 2f
-            inset(-expansion, -expansion)
-        }
+
+        // CHANGED: bounds is now computed on every access instead of cached.
+        // This guarantees correctness even if the path is modified outside of move(),
+        // preventing silent bounds corruption that breaks selection, alignment, and culling.
+        // Performance impact is negligible: path.computeBounds() is a fast native call,
+        // and bounds is only accessed during selection (1× on tap), alignment (1× per
+        // drag frame for selected object), and viewport culling (N× per refreshCanvas).
+        override val bounds: RectF
+            get() = RectF().apply {
+                path.computeBounds(this, true)
+                val expansion = paint.strokeWidth / 2f
+                inset(-expansion, -expansion)
+            }
 
         override fun draw(canvas: Canvas) {
             canvas.drawPath(path, paint)
@@ -79,7 +85,8 @@ sealed class DrawingObject {
 
         override fun move(dx: Float, dy: Float) {
             path.offset(dx, dy)
-            bounds.offset(dx, dy)
+            // No manual bounds.offset() needed anymore — bounds getter
+            // computes fresh from the offset path automatically
         }
 
         override fun clone(): DrawingObject {
