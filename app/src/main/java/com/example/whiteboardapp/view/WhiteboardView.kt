@@ -165,6 +165,10 @@ class WhiteboardView @JvmOverloads constructor(
                 currentPath.reset()
                 currentStylusPoints.clear()
                 isDrawingWithStylus = false
+
+                // Reset shape drawing handler to clear any in-progress shape preview.
+                // Without this, switching from Shape→Shape tool can show stale preview.
+                shapeDrawingHandler = ShapeDrawingHandler(this@WhiteboardView)
             }
             strokeWidth.observe(lifecycleOwner) { width -> drawPaint.strokeWidth = width }
             strokeColor.observe(lifecycleOwner) { color -> drawPaint.color = color }
