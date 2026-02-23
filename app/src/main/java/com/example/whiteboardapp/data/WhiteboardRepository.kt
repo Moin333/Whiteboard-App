@@ -22,7 +22,13 @@ class WhiteboardRepository {
         name: String,
         objects: List<DrawingObject>
     ): ObjectId {
-        if (objects.isEmpty()) return sessionId ?: ObjectId()
+        // Early return removed: always persist to DB, even if empty.
+        // This prevents phantom ObjectIds that exist in ViewModel but not in Realm.
+        // Auto-save on an empty canvas (legitimate at startup) should create a
+        // real session, not generate ghost state.
+        //
+        // Empty sessions can be filtered in UI or cleaned up via session management
+        // (planned for Sprint 5).
 
         val realm = Realm.open(WhiteboardApplication.config)
         lateinit var savedSessionId: ObjectId
@@ -60,13 +66,11 @@ class WhiteboardRepository {
         val realm = Realm.open(WhiteboardApplication.config)
         var objects: List<DrawingObject> = emptyList()
         try {
-            realm.write {
-                val session = query<WhiteboardSession>("id == $0", sessionId).first().find()
-                objects = session?.objects
-                    ?.sortedBy { it.order }
-                    ?.mapNotNull { DrawingObjectSerializer.deserialize(it) }
-                    ?: emptyList()
-            }
+            val session = realm.query<WhiteboardSession>("id == $0", sessionId).first().find()
+            objects = session?.objects
+                ?.sortedBy { it.order }
+                ?.mapNotNull { DrawingObjectSerializer.deserialize(it) }
+                ?: emptyList()
         } finally {
             realm.close()
         }

@@ -11,6 +11,7 @@ import android.view.View
 import android.animation.ValueAnimator
 import android.view.animation.DecelerateInterpolator
 import androidx.core.graphics.createBitmap
+import androidx.lifecycle.LifecycleOwner
 import com.example.whiteboardapp.manager.AlignmentHelper
 import com.example.whiteboardapp.manager.ShapeDrawingHandler
 import com.example.whiteboardapp.manager.CanvasTransformManager
@@ -146,25 +147,32 @@ class WhiteboardView @JvmOverloads constructor(
 
     fun setAlignmentEnabled(enabled: Boolean) { alignmentEnabled = enabled }
 
-    fun setViewModel(vm: WhiteboardViewModel) {
+    fun setViewModel(vm: WhiteboardViewModel, lifecycleOwner: LifecycleOwner) {
         viewModel = vm
-        observeViewModel()
+        observeViewModel(lifecycleOwner)
     }
 
-    private fun observeViewModel() {
+    private fun observeViewModel(lifecycleOwner: LifecycleOwner) {
         viewModel?.apply {
-            currentTool.observeForever { tool ->
+            currentTool.observe(lifecycleOwner) { tool ->
                 this@WhiteboardView.currentTool = tool
                 isTransforming = false
                 isCanvasPanning = false
                 isPanning = false
-                // Reset stylus state when the user switches tools
+                // Cancel any in-progress drawing when switching tools.
+                // This provides immediate visual feedback (preview disappears when
+                // tool button is tapped) and prevents reconnection edge cases.
+                currentPath.reset()
                 currentStylusPoints.clear()
                 isDrawingWithStylus = false
+
+                // Reset shape drawing handler to clear any in-progress shape preview.
+                // Without this, switching from Shape→Shape tool can show stale preview.
+                shapeDrawingHandler = ShapeDrawingHandler(this@WhiteboardView)
             }
-            strokeWidth.observeForever { width -> drawPaint.strokeWidth = width }
-            strokeColor.observeForever { color -> drawPaint.color = color }
-            drawingObjects.observeForever { objects ->
+            strokeWidth.observe(lifecycleOwner) { width -> drawPaint.strokeWidth = width }
+            strokeColor.observe(lifecycleOwner) { color -> drawPaint.color = color }
+            drawingObjects.observe(lifecycleOwner) { objects ->
                 allObjects = objects
                 refreshCanvas()
             }
@@ -820,13 +828,27 @@ class WhiteboardView @JvmOverloads constructor(
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-            isScaling = true; isCanvasPanning = false; return true
+            isScaling = true
+            isCanvasPanning = false
+
+            // Cancel any in-progress stroke to prevent reconnection when drawing resumes.
+            // TODO (post-Sprint 2): Once undo is fixed for move/resize operations,
+            // upgrade this to commit the partial stroke instead of discarding it
+            // (matches Procreate/Fresco behavior — preserves accidental work as undoable).
+            currentPath.reset()
+            currentStylusPoints.clear()
+            isDrawingWithStylus = false
+
+            return true
         }
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             transformManager.setScale(transformManager.currentScale * detector.scaleFactor, detector.focusX, detector.focusY)
-            invalidate(); return true
+            invalidate()
+            return true
         }
-        override fun onScaleEnd(detector: ScaleGestureDetector) { isScaling = false }
+        override fun onScaleEnd(detector: ScaleGestureDetector) {
+            isScaling = false
+        }
     }
 
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {

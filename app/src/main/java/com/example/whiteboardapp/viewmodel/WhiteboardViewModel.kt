@@ -12,6 +12,7 @@ import com.example.whiteboardapp.model.DrawingTool
 import androidx.lifecycle.viewModelScope
 import com.example.whiteboardapp.data.WhiteboardRepository
 import com.example.whiteboardapp.data.db.WhiteboardSession
+import com.example.whiteboardapp.manager.AutoSaveManager
 import com.example.whiteboardapp.manager.CommandManager
 import com.example.whiteboardapp.manager.ExportManager
 import com.example.whiteboardapp.model.DrawingCommand
@@ -28,6 +29,11 @@ class WhiteboardViewModel : ViewModel() {
     val objectManager = ObjectManager()
     private val commandManager = CommandManager()
 
+    // Auto-save manager — survives rotation, cancelled only when ViewModel is cleared
+    private val autoSaveManager = AutoSaveManager(
+        repository = repository,
+        intervalMinutes = 5
+    )
 
     // LiveData for Undo/Redo states from CommandManager
     val canUndo: LiveData<Boolean> = commandManager.canUndo
@@ -54,6 +60,16 @@ class WhiteboardViewModel : ViewModel() {
     val eraserRadius: LiveData<Float> = _eraserRadius
     private val _isExporting = MutableLiveData(false)
     val isExporting: LiveData<Boolean> = _isExporting
+
+    init {
+        // Start auto-save in viewModelScope — survives rotation, single instance,
+        // cancelled only when user navigates away (ViewModel.onCleared)
+        autoSaveManager.startAutoSave(
+            scope = viewModelScope,
+            getObjects = { objectManager.getObjects() },
+            getCurrentSessionId = { _currentSessionId.value }
+        )
+    }
 
     // --- Public Methods ---
     suspend fun getSessions(): List<WhiteboardSession> {
@@ -254,6 +270,8 @@ class WhiteboardViewModel : ViewModel() {
 
     override fun onCleared() {
         super.onCleared()
+        // Stop auto-save when ViewModel is cleared (user navigates away)
+        autoSaveManager.stopAutoSave()
         objectManager.clear()
     }
 }
